@@ -1,0 +1,10 @@
+name = "ACL2Lean"
+version = "0.1.0"
+defaultTargets = ["acl2lean"]
+
+[[lean_lib]]
+name = "ACL2Lean"
+
+[[lean_exe]]
+name = "acl2lean"
+root = "Main"
