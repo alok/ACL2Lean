@@ -16,6 +16,9 @@ def sampleFiles : List System.FilePath :=
   , "acl2_samples/die-hard-work.lisp"
   , "acl2_samples/bakery-programs.lisp"
   , "acl2_samples/bakery-inv-sufficient.lisp"
+  , "acl2_samples/execloader-top.lisp"
+  , "acl2_samples/gaussian-big-a-and-b.lsp"
+  , "acl2_samples/gaussian-df-solver-v9.lisp"
   ]
 
 /-- Render a hash map as a friendly string for debugging. -/
@@ -33,6 +36,21 @@ def reportSamples : IO Unit := do
     | .ok counts =>
         IO.println s!"[ok] {file}: {prettyCounts counts}"
 
-#eval reportSamples
+    -- Print skipped events for debugging
+    let events ← loadEventsFromFile file
+    match events with
+    | .ok evs =>
+        let skips := evs.filter fun
+          | .skip _ => true
+          | _ => false
+        if ¬ skips.isEmpty then
+          IO.println s!"  Skipped {skips.length} events in {file}:"
+          for s in skips.take 5 do
+            match s with
+            | .skip raw => IO.println s!"    {repr raw}"
+            | _ => pure ()
+          if skips.length > 5 then
+            IO.println "    ..."
+    | _ => pure ()
 
 end ACL2

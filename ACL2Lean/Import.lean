@@ -30,6 +30,9 @@ def summarizeFile (path : System.FilePath) : IO (Except String (Std.HashMap Stri
           | .encapsulate _ => "encapsulate"
           | .makeEvent _ => "make-event"
           | .defrec _ => "defrec"
+          | .defconst .. => "defconst"
+          | .defstobj .. => "defstobj"
+          | .table .. => "table"
           | .skip _ => "skip"
         let tag := getTag ev
         let prev := (acc.get? tag).getD 0

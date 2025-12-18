@@ -31,7 +31,7 @@ inductive SExpr
   | nil
   | atom (a : Atom)
   | cons (car : SExpr) (cdr : SExpr)
-  deriving Repr, DecidableEq
+  deriving Repr, DecidableEq, Inhabited
 
 namespace SExpr
 
@@ -67,19 +67,33 @@ structure PackageState where
 inductive Event
   | inPackage (name : String)
   | includeBook (path : String) (dirs : List String := [])
-  | defun (name : Symbol) (formals : List Symbol) (body : SExpr)
+  | defun (name : Symbol) (formals : List Symbol) (doc : Option String) (decls : List SExpr) (body : SExpr)
   | defthm (name : Symbol) (body : SExpr) (hints : Option SExpr := none)
-  | defmacro (name : Symbol) (formals : List Symbol) (body : SExpr)
+  | defmacro (name : Symbol) (formals : List Symbol) (doc : Option String) (decls : List SExpr) (body : SExpr)
   | mutualRecursion (events : List Event)
   | local (event : Event)
   | inTheory (body : SExpr)
   | encapsulate (events : List Event)
   | makeEvent (body : SExpr)
   | defrec (name : Symbol)
+  | defconst (name : Symbol) (value : SExpr)
+  | defstobj (name : Symbol) (fields : List SExpr)
+  | table (name : Symbol) (args : List SExpr)
   | skip (raw : SExpr)
   deriving Repr, Inhabited
 
 namespace Event
+
+/-- Peel off docstrings and declarations from a function body list. -/
+partial def parseDefunBody (doc : Option String) (decls : List SExpr) (rest : List SExpr) : (Option String × List SExpr × SExpr) :=
+  match rest with
+  | SExpr.atom (.string s) :: rest => parseDefunBody (some s) decls rest
+  | (d@(SExpr.cons (SExpr.atom (.symbol { name := "declare", .. })) _)) :: rest => parseDefunBody doc (d :: decls) rest
+  | rest =>
+      let body := match rest with
+        | [b] => b
+        | _ => SExpr.ofList rest
+      (doc, decls.reverse, body)
 
 /-- Quick best-effort to stratify an ACL2 event from its raw syntax. -/
 partial def classify (sexpr : SExpr) : Event :=
@@ -104,7 +118,7 @@ partial def classify (sexpr : SExpr) : Event :=
       | _ => .skip sexpr
   | .cons (.atom (.symbol { name := "defun", .. })) rest =>
       match rest.toList? with
-      | some (SExpr.atom (.symbol name) :: params :: body) =>
+      | some (SExpr.atom (.symbol name) :: params :: rest) =>
           let fmls :=
             match params.toList? with
             | some lst =>
@@ -113,8 +127,8 @@ partial def classify (sexpr : SExpr) : Event :=
                     | SExpr.atom (.symbol s) => some s
                     | _ => none)
             | none => []
-          let bodyExpr := SExpr.ofList body
-          .defun name fmls bodyExpr
+          let (doc, decls, bodyExpr) := parseDefunBody none [] rest
+          .defun name fmls doc decls bodyExpr
       | _ => .skip sexpr
   | .cons (.atom (.symbol { name := "defthm", .. })) rest =>
       match rest.toList? with
@@ -127,7 +141,7 @@ partial def classify (sexpr : SExpr) : Event :=
       | _ => .skip sexpr
   | .cons (.atom (.symbol { name := "defmacro", .. })) rest =>
       match rest.toList? with
-      | some (SExpr.atom (.symbol name) :: params :: body) =>
+      | some (SExpr.atom (.symbol name) :: params :: rest) =>
           let fmls :=
             match params.toList? with
             | some lst =>
@@ -136,8 +150,8 @@ partial def classify (sexpr : SExpr) : Event :=
                     | SExpr.atom (.symbol s) => some s
                     | _ => none)
             | none => []
-          let bodyExpr := SExpr.ofList body
-          .defmacro name fmls bodyExpr
+          let (doc, decls, bodyExpr) := parseDefunBody none [] rest
+          .defmacro name fmls doc decls bodyExpr
       | _ => .skip sexpr
   | .cons (.atom (.symbol { name := "local", .. })) rest =>
       match rest.toList? with
@@ -159,6 +173,20 @@ partial def classify (sexpr : SExpr) : Event :=
       match rest.toList? with
       | some (SExpr.atom (.symbol name) :: _) => .defrec name
       | _ => .skip sexpr
+  | .cons (.atom (.symbol { name := "defconst", .. })) rest =>
+      match rest.toList? with
+      | some [SExpr.atom (.symbol name), val] => .defconst name val
+      | _ => .skip sexpr
+  | .cons (.atom (.symbol { name := "defstobj", .. })) rest =>
+      match rest.toList? with
+      | some (SExpr.atom (.symbol name) :: fields) => .defstobj name fields
+      | _ => .skip sexpr
+  | .cons (.atom (.symbol { name := "table", .. })) rest =>
+      match rest.toList? with
+      | some (SExpr.atom (.symbol name) :: args) => .table name args
+      | _ => .skip sexpr
+  | .cons (.atom (.symbol { name := "program", .. })) .nil => .skip sexpr
+  | .cons (.atom (.symbol { name := "set-verify-guards-eagerness", .. })) _ => .skip sexpr
   | _ => .skip sexpr
 
 end Event
@@ -166,32 +194,36 @@ end Event
 /-- Placeholder semantics: interpret events into a growing environment. -/
 structure World where
   package : PackageState := {}
-  defs : Std.HashMap Symbol SExpr := {}
+  defs : Std.HashMap Symbol (List Symbol × SExpr) := {}
+  macros : Std.HashMap Symbol (List Symbol × SExpr) := {}
   deriving Repr
 
 instance : Inhabited World :=
-  ⟨{ package := {}, defs := {} }⟩
+  ⟨{ package := {}, defs := {}, macros := {} }⟩
 
 namespace World
 
 /-- Install an event, currently ignoring proof obligations. -/
-def step (w : World) (event : Event) : World :=
+partial def step (w : World) (event : Event) : World :=
   match event with
   | .inPackage name => { w with package := { w.package with current := name } }
   | .includeBook _ _ => w
-  | .defun name _ body => { w with defs := w.defs.insert name body }
-  | .defthm name body _ => { w with defs := w.defs.insert name body }
-  | .defmacro name _ body => { w with defs := w.defs.insert name body }
+  | .defun name formals _ _ body => { w with defs := w.defs.insert name (formals, body) }
+  | .defthm name body _ => { w with defs := w.defs.insert name ([], body) }
+  | .defmacro name formals _ _ body => { w with macros := w.macros.insert name (formals, body) }
   | .local e => step w e
   | .inTheory _ => w
   | .mutualRecursion evs => evs.foldl step w
   | .encapsulate evs => evs.foldl step w
   | .makeEvent _ => w
   | .defrec _ => w
+  | .defconst name value => { w with defs := w.defs.insert name ([], value) }
+  | .defstobj _ _ => w
+  | .table _ _ => w
   | .skip _ => w
 
 /-- Replay a script of events. -/
-def empty : World := { package := {}, defs := {} }
+def empty : World := { package := {}, defs := {}, macros := {} }
 
 /-- Replay a script of events. -/
 def replay (events : List Event) : World :=

@@ -140,10 +140,22 @@ mutual
             match tok.toInt? with
             | some n => .number (.int n)
             | none =>
-              let parts := tok.splitOn "::"
-              match parts with
-              | [pkg, name] => .symbol { package := pkg, name }
-              | _ => .symbol { name := tok }
+              if tok.contains '/' then
+                let parts := tok.splitOn "/"
+                match parts with
+                | [numStr, denStr] =>
+                    match numStr.toInt?, denStr.toNat? with
+                    | some n, some d => .number (.rational n d)
+                    | _, _ => .symbol { name := tok }
+                | _ => .symbol { name := tok }
+              else if tok.contains '.' then
+                -- very crude decimal parsing
+                .symbol { name := tok }
+              else
+                let parts := tok.splitOn "::"
+                match parts with
+                | [pkg, name] => .symbol { package := pkg, name }
+                | _ => .symbol { name := tok }
         .ok (SExpr.atom atom, rest)
 end
 

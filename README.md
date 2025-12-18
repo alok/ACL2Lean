@@ -1,1 +1,32 @@
-# ACL2Lean
+# ACL2 EDSL Bridge for Lean 4
+
+This project provides a bridge between ACL2 and Lean 4, allowing for parsing, evaluating, and translating ACL2 books into Lean 4 code.
+
+## Key Features
+
+- **Robust Parser**: Supports block comments, reader macros, escaped symbols, and complex numeric literals.
+- **Semantic Evaluator**: A verified evaluator in Lean that matches ACL2 behavior for core primitives.
+- **Automated Translator**: Translates ACL2 `defun` and `defthm` into Lean `def` and `theorem` statements.
+- **Proving Support**: Includes `acl2_simp` and `acl2_grind` tactics.
+- **Internal SMT Solver**: Leverages Lean's `grind` tactic with linear integer arithmetic (`cutsat`) support for automated proofs of arithmetic properties.
+
+## Getting Started
+
+1.  **Build**: `just build`
+2.  **Report Coverage**: `just report`
+3.  **Verify Evaluator**: `just verify` (Requires ACL2)
+4.  **Translate Book**: `just translate acl2_samples/2009-log2.lisp`
+
+## Automated Proving with `grind`
+
+The `acl2_grind` tactic is specifically designed to handle ACL2 proof obligations by combining congruence closure with powerful theory solvers like linear arithmetic.
+
+Example of a proven theorem:
+```lean
+theorem plus_comm (x y : SExpr) : 
+  Logic.toBool (integerp x) = true → 
+  Logic.toBool (integerp y) = true → 
+  Logic.toBool (Logic.equal (Logic.plus x y) (Logic.plus y x)) = true := by
+  acl2_grind
+```
+This is proven automatically by Lean's `grind` tactic!
