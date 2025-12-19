@@ -1,4 +1,8 @@
 import Std.Data.HashMap
+import Lean
+import ACL2Lean.DSL.SyntaxCategories
+
+open Lean
 
 namespace ACL2
 
@@ -6,7 +10,11 @@ namespace ACL2
 structure Symbol where
   package : String := "ACL2"
   name : String
-  deriving Repr, DecidableEq, BEq, Hashable, Inhabited
+  deriving DecidableEq, BEq, Hashable, Inhabited
+
+instance : Repr Symbol where
+  reprPrec s _ := 
+    if s.package == "ACL2" then s.name else s.package ++ "::" ++ s.name
 
 /-- Keywords are stored without the leading colon. -/
 abbrev Keyword := String
@@ -16,7 +24,13 @@ inductive Number
   | int (value : Int)
   | rational (numerator : Int) (denominator : Nat)
   | decimal (mantissa : Int) (exponent : Int)
-  deriving Repr, DecidableEq
+  deriving DecidableEq
+
+instance : Repr Number where
+  reprPrec n _ := match n with
+    | .int v => repr v
+    | .rational n d => s!"{n}/{d}"
+    | .decimal m e => s!"{m}E{e}"
 
 inductive Atom
   | symbol (value : Symbol)
@@ -24,14 +38,23 @@ inductive Atom
   | string (value : String)
   | bool (value : Bool)
   | number (value : Number)
-  deriving Repr, DecidableEq
+  deriving DecidableEq
+
+instance : Repr Atom where
+  reprPrec a _ := match a with
+    | .symbol s => repr s
+    | .keyword k => ":" ++ k
+    | .string s => repr s
+    | .bool true => "T"
+    | .bool false => "NIL"
+    | .number n => repr n
 
 /-- Minimal s-expression structure to model ACL2 source. -/
 inductive SExpr
   | nil
   | atom (a : Atom)
   | cons (car : SExpr) (cdr : SExpr)
-  deriving Repr, DecidableEq, Inhabited
+  deriving DecidableEq, Inhabited
 
 namespace SExpr
 
@@ -56,6 +79,25 @@ def headSymbol? : SExpr → Option Symbol
   | _ => none
 
 end SExpr
+
+partial def SExpr.toString : SExpr → String
+  | .nil => "NIL"
+  | .atom a => s!"{repr a}"
+  | s@(.cons _ _) =>
+    match s.toList? with
+    | some l => "(" ++ " ".intercalate (l.map toString) ++ ")"
+    | none => match s with
+      | .cons car cdr => s!"({toString car} . {toString cdr})"
+      | _ => ""
+
+instance : ToString SExpr where
+  toString := SExpr.toString
+
+instance : Repr SExpr where
+  reprPrec s _ := s.toString
+
+-- DSL-like notation for S-expressions in Lean code
+syntax "sexpr!{" acl2_sexpr "}" : term
 
 /-- Capture the ACL2 package context for events. -/
 structure PackageState where

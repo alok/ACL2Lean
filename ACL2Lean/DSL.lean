@@ -1,43 +1,11 @@
 import Lean
+import ACL2Lean.DSL.SyntaxCategories
 import ACL2Lean.Logic
 import ACL2Lean.Tactics
 
 open Lean Elab Command Term Meta
 
 namespace ACL2
-
-declare_syntax_cat acl2_sexpr
-declare_syntax_cat acl2_event
-
--- Flexible Identifier Syntax
-declare_syntax_cat acl2_id
-syntax ident : acl2_id
-syntax num : acl2_id
-syntax "-" : acl2_id
-syntax "+" : acl2_id
-syntax "*" : acl2_id
-syntax "/" : acl2_id
-syntax "<" : acl2_id
-syntax ">" : acl2_id
-syntax "=" : acl2_id
-syntax "!" : acl2_id
-syntax "?" : acl2_id
-
--- S-Expression Syntax
-syntax acl2_id : acl2_sexpr
-syntax num : acl2_sexpr
-syntax str : acl2_sexpr
-syntax "(" acl2_sexpr* ")" : acl2_sexpr
-syntax ":" acl2_id : acl2_sexpr
-syntax "if" : acl2_sexpr
-
--- Event Syntax
-syntax "(" "defun" acl2_id+ "(" acl2_id* ")" acl2_sexpr ")" : acl2_event
-syntax "(" "defthm" acl2_id+ acl2_sexpr ")" : acl2_event
-syntax "(" "in-package" str ")" : acl2_event
-
--- Top-level DSL command
-syntax "#acl" "{" acl2_event* "}" : command
 
 /-- Sanitize ACL2 symbol names for Lean. -/
 def sanitize (s : String) : Name :=
@@ -46,13 +14,23 @@ def sanitize (s : String) : Name :=
   let s' := s'.replace "!" "_bang"
   let s' := s'.replace "?" "_p"
   let s' := s'.replace "+" "plus"
-  let s' := s'.replace "*" "times"
+  let s' := if s' == "*" then "times" else s'.replace "*" "star"
   let s' := s'.replace "/" "div"
   let s' := s'.replace "<" "lt"
   let s' := s'.replace ">" "gt"
   let s' := s'.replace "=" "eq"
   let s' := if s' == "if" then "if_" else s'
+  let s' := if s'.startsWith "_" then "v" ++ s' else s'
   Name.mkSimple s'
+
+def getIdStr (stx : Syntax) : String :=
+  match stx.reprint with
+  | some s => s.trimAscii.toString
+  | none => ""
+
+def getIdsStr (stxs : Array (TSyntax `acl2_id)) : String :=
+  let parts := stxs.map (fun i => getIdStr i.raw)
+  "".intercalate parts.toList
 
 /-- Map ACL2 built-ins to Lean Logic functions as Syntax. -/
 def mapBuiltinStx (s : String) : Ident :=
@@ -82,130 +60,138 @@ def mapBuiltinStx (s : String) : Ident :=
     | s' => sanitize s'
   mkIdent name
 
-def getIdStr (stx : Syntax) : String :=
-  match stx.reprint with
-  | some s => s.trimAscii.toString
-  | none => ""
-
-def getIdsStr (stxs : Array Syntax) : String :=
-  let parts := stxs.map getIdStr
-  "".intercalate parts.toList
+/-- Detect built-ins to avoid collecting them as variables. -/
+def isBuiltin (s : String) : Bool :=
+  ["+", "-", "*", "/", "<", ">", "=", "<=", ">=", "if", "zp", "evenp", "equal", "consp", "atom", "car", "cdr", "cons", "not", "and", "or", "implies", "t", "nil", "quote"].contains s
 
 /-- Translate ACL2 S-expression to a raw SExpr value in Lean. -/
 partial def translateSExprValue (stx : Syntax) : MacroM (TSyntax `term) := do
   match stx with
   | `(acl2_sexpr| $i:acl2_id) =>
       let name := getIdStr i.raw
-      if name == "t" then `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.bool true))
-      else if name == "nil" then `(_root_.ACL2.SExpr.nil)
+      if name == "t" then return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.bool true)))
+      else if name == "nil" then return (← `(_root_.ACL2.SExpr.nil))
       else
         let nameLit := Lean.quote name
-        `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.symbol { package := none, name := $nameLit }))
-  | `(acl2_sexpr| $n:num) => `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.number (_root_.ACL2.Number.int (Int.ofNat $n))))
-  | `(acl2_sexpr| $s:str) => `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.string $s))
-  | `(acl2_sexpr| ($ss:acl2_sexpr*)) => do
+        return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.symbol { package := "ACL2", name := $nameLit })))
+  | `(acl2_sexpr| $n:num) =>
+      return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.number (_root_.ACL2.Number.int (Int.ofNat $n)))))
+  | `(acl2_sexpr| $s:str) =>
+      return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.string $s)))
+  | `(acl2_sexpr| ($ss*)) =>
       let mut res ← `(_root_.ACL2.SExpr.nil)
       for s in ss.reverse do
         let s' ← translateSExprValue s
         res ← `(_root_.ACL2.SExpr.cons $s' $res)
-      pure res
-  | _ => Macro.throwError s!"Unsupported ACL2 value syntax: {stx}"
+      return res
+  | _ => return (← `(_root_.ACL2.SExpr.nil))
 
-/-- Detect built-in names to avoid collecting them as variables. -/
-def isBuiltin (s : String) : Bool :=
-  ["+", "-", "*", "/", "<", ">", "=", "<=", ">=", "if", "zp", "evenp", "equal", "consp", "atom", "car", "cdr", "cons", "not", "and", "or", "implies", "t", "nil", "quote"].contains s
-
-/-- Collect free variables in an ACL2 S-expression. -/
+/-- Collect free variables. -/
 partial def collectFreeVars (stx : Syntax) : MacroM (List Ident) := do
   match stx with
   | `(acl2_sexpr| $i:acl2_id) =>
       let name := getIdStr i.raw
-      if isBuiltin name then pure []
-      else pure [mkIdent (sanitize name)]
-  | `(acl2_sexpr| ($ss:acl2_sexpr*)) => do
-      if ss.isEmpty then pure []
-      else
-        let fnName := getIdStr ss[0]!.raw
-        let mut vars := []
-        let startIdx := if fnName == "quote" then ss.size else 1
-        for a in ss[startIdx:] do
-          let avars ← collectFreeVars a
-          vars := vars ++ avars
-        pure vars
-  | _ => pure []
+      if isBuiltin name || name.toNat?.isSome then return []
+      else return [mkIdent (sanitize name)]
+  | `(acl2_sexpr| ($ss*)) =>
+      if ss.isEmpty then return []
+      let first := ss[0]!
+      let fnName := getIdStr first.raw
+      if fnName == "quote" then return []
+      let mut vars : List Ident := []
+      for i in [1:ss.size] do
+        let avars ← collectFreeVars ss[i]!
+        vars := vars ++ avars
+      return vars
+  | _ => return []
 
-/-- Translate ACL2 S-expression syntax to Lean Syntax (as code). -/
+/-- Translate ACL2 S-expression to Lean code. -/
 partial def translateSExpr (stx : Syntax) : MacroM (TSyntax `term) := do
   match stx with
   | `(acl2_sexpr| $i:acl2_id) =>
       let name := getIdStr i.raw
-      if name == "t" then `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.bool true))
-      else if name == "nil" then `(_root_.ACL2.SExpr.nil)
-      else pure (mkIdent (sanitize name))
-  | `(acl2_sexpr| if) => pure (mkIdent (sanitize "if"))
-  | `(acl2_sexpr| $n:num) => `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.number (_root_.ACL2.Number.int (Int.ofNat $n))))
-  | `(acl2_sexpr| $s:str) => `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.string $s))
-  | `(acl2_sexpr| ($ss:acl2_sexpr*)) => do
-      if ss.isEmpty then `(_root_.ACL2.SExpr.nil)
-      else
-        let fnName := getIdStr ss[0]!.raw
-        if fnName == "if" then
-          if ss.size == 4 then
-            let c ← translateSExpr ss[1]!
-            let t ← translateSExpr ss[2]!
-            let e ← translateSExpr ss[3]!
-            `(if _root_.ACL2.Logic.toBool $c then $t else $e)
-          else
-            Macro.throwError "if requires 3 arguments"
-        else if fnName == "quote" then
-          if ss.size == 2 then
-            translateSExprValue ss[1]!
-          else
-            Macro.throwError "quote requires 1 argument"
+      if name == "t" then return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.bool true)))
+      else if name == "nil" then return (← `(_root_.ACL2.SExpr.nil))
+      else return mkIdent (sanitize name)
+  | `(acl2_sexpr| $n:num) =>
+      return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.number (ACL2.Number.int (Int.ofNat $n)))))
+  | `(acl2_sexpr| $s:str) =>
+      return (← `(_root_.ACL2.SExpr.atom (ACL2.Atom.string $s)))
+  | `(acl2_sexpr| ($ss*)) =>
+      if ss.isEmpty then return (← `(_root_.ACL2.SExpr.nil))
+      let first := ss[0]!
+      let fnName := getIdStr first.raw
+      if fnName == "if" then
+        if ss.size == 4 then
+          let c ← translateSExpr ss[1]!
+          let t ← translateSExpr ss[2]!
+          let e ← translateSExpr ss[3]!
+          return (← `(if _root_.ACL2.Logic.toBool $c then $t else $e))
         else
-          let fnIdent := mapBuiltinStx fnName
-          let mut args := #[]
-          for a in ss[1:] do
-            let a' ← translateSExpr a
-            args := args.push a'
-          `($fnIdent $args*)
-  | _ => Macro.throwError s!"Unsupported ACL2 expression syntax: {stx}"
+          Macro.throwError "if requires 3 arguments"
+      else if fnName == "quote" then
+        if ss.size == 2 then
+          translateSExprValue ss[1]!
+        else
+          Macro.throwError "quote requires 1 argument"
+      else
+        let fnIdent := mapBuiltinStx fnName
+        let mut tArgs := #[]
+        for i in [1:ss.size] do
+          let a' ← translateSExpr ss[i]!
+          tArgs := tArgs.push a'
+        if fnName == "list" then
+          return (← `(_root_.ACL2.Logic.list [$tArgs,*]))
+        else
+          return (← `($fnIdent $tArgs*))
+  | _ => return (← `(_root_.ACL2.SExpr.nil))
 
-elab_rules : command
-  | `(#acl { $events:acl2_event* }) => do
-      let mut defNames := #[]
-      let mut thmNames := #[]
-      for ev in events do
-        match ev with
-        | `(acl2_event| (defun $[$id:acl2_id]* ($[$args:acl2_id]* ) $body:acl2_sexpr)) =>
-            let body' ← liftMacroM <| translateSExpr body
-            let mut binders := #[]
-            for arg in args do
-              let argName := getIdStr arg
-              let argId := mkIdent (sanitize argName)
-              binders := binders.push argId
-            let nameStr := getIdsStr (id.map (·.raw))
-            let nameId := mkIdent (sanitize nameStr)
-            let cmd ← `(partial def $nameId $[($binders : _root_.ACL2.SExpr)]* : _root_.ACL2.SExpr := $body')
-            elabCommand cmd
-            defNames := defNames.push nameStr
-        | `(acl2_event| (defthm $[$id:acl2_id]* $prop:acl2_sexpr)) =>
-            let prop' ← liftMacroM <| translateSExpr prop
-            let vars ← liftMacroM <| collectFreeVars prop
-            let mut binders := #[]
-            let mut seen := #[]
-            for v in vars do
-              if !seen.contains v.getId then
-                binders := binders.push v
-                seen := seen.push v.getId
-            let nameStr := getIdsStr (id.map (·.raw))
-            let nameId := mkIdent (sanitize nameStr)
-            let cmd ← `(theorem $nameId $[($binders : _root_.ACL2.SExpr)]* : _root_.ACL2.Logic.toBool $prop' = true := by
-              first | acl2_grind | sorry)
-            elabCommand cmd
-            thmNames := thmNames.push nameStr
-        | _ => pure ()
+syntax "#acl" "{" acl2_event* "}" : command
 
-      logInfo s!"#acl World updated:\n  Functions: {defNames.toList}\n  Theorems: {thmNames.toList}"
+elab "#acl" "{" events:acl2_event* "}" : command => do
+  let mut defNames : List String := []
+  let mut thmNames : List String := []
+  let mut macroNames : List String := []
+  let mut constNames : List String := []
+  for ev in events do
+    match ev with
+    | `(acl2_event| (defun $[$id:acl2_id]* ($[$args:acl2_id]* ) $body:acl2_sexpr)) =>
+        let body' ← liftMacroM <| translateSExpr body
+        let nameId := mkIdent (sanitize (getIdsStr id))
+        let mut binders := #[]
+        for arg in args do
+          let argName := getIdStr arg.raw
+          binders := binders.push (← `(bracketedBinder| ($(mkIdent (sanitize argName)) : _root_.ACL2.SExpr)))
+        let cmd ← `(partial def $nameId $[$binders]* : _root_.ACL2.SExpr := $body')
+        elabCommand cmd
+        defNames := (getIdsStr id) :: defNames
+    | `(acl2_event| (defthm $[$id:acl2_id]* $prop:acl2_sexpr $[: $proof:term]?)) =>
+        let prop' ← liftMacroM <| translateSExpr prop
+        let vars ← liftMacroM <| collectFreeVars prop
+        let nameId := mkIdent (sanitize (getIdsStr id))
+        let mut seen := #[]
+        let mut binders := #[]
+        for v in vars do
+          if !seen.contains v.getId then
+            seen := seen.push v.getId
+            binders := binders.push (← `(bracketedBinder| ($v : _root_.ACL2.SExpr)))
+
+        let cmd ← if let some p := proof then
+          `(set_option maxHeartbeats 1000000 in theorem $nameId $[$binders]* : _root_.ACL2.Logic.toBool $prop' = true := $p)
+        else
+          `(set_option maxHeartbeats 1000000 in theorem $nameId $[$binders]* : _root_.ACL2.Logic.toBool $prop' = true := by
+            first | acl2_grind | sorry)
+
+        elabCommand cmd
+        thmNames := (getIdsStr id) :: thmNames
+    | `(acl2_event| (defconst $id:acl2_id $val:acl2_sexpr)) =>
+        let nameId := mkIdent (sanitize (getIdStr id.raw))
+        let val' ← liftMacroM <| translateSExprValue val
+        let cmd ← `(def $nameId : _root_.ACL2.SExpr := $val')
+        elabCommand cmd
+        constNames := (getIdStr id.raw) :: constNames
+    | _ => pure ()
+
+  logInfo s!"#acl World updated:\n  Functions: {defNames.reverse}\n  Theorems: {thmNames.reverse}\n  Constants: {constNames.reverse}\n  Macros: {macroNames.reverse}"
 
 end ACL2

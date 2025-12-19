@@ -9,3 +9,5 @@ import ACL2Lean.Translator
 import ACL2Lean.Logic
 import ACL2Lean.Tactics
 import ACL2Lean.DSL
+import ACL2Lean.PrettyPrinter
+import ACL2Lean.PrettyPrinter
