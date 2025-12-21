@@ -12,7 +12,7 @@ open ACL2 ACL2.Logic ACL2.Tactics
         1
       (* n (factorial (- n 1)))))
 
-  -- This theorem now has a 'finally' block to finish the proof if grind doesn't solve it
+  -- Test the 'finally' block by passing a 'by' term
   (defthm factorial-5 (equal (factorial 5) 120) : by
     acl2_simp
     native_decide)

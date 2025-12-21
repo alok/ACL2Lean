@@ -28,10 +28,6 @@ def getIdStr (stx : Syntax) : String :=
   | some s => s.trimAscii.toString
   | none => ""
 
-def getIdsStr (stxs : Array (TSyntax `acl2_id)) : String :=
-  let parts := stxs.map (fun i => getIdStr i.raw)
-  "".intercalate parts.toList
-
 /-- Map ACL2 built-ins to Lean Logic functions as Syntax. -/
 def mapBuiltinStx (s : String) : Ident :=
   let name := match s.trimAscii.toString with
@@ -71,6 +67,8 @@ partial def translateSExprValue (stx : Syntax) : MacroM (TSyntax `term) := do
       let name := getIdStr i.raw
       if name == "t" then return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.bool true)))
       else if name == "nil" then return (← `(_root_.ACL2.SExpr.nil))
+      else if let some n := i.raw.isNatLit? then
+        return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.number (_root_.ACL2.Number.int (Int.ofNat $(Lean.quote n))))))
       else
         let nameLit := Lean.quote name
         return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.symbol { package := "ACL2", name := $nameLit })))
@@ -146,29 +144,29 @@ partial def translateSExpr (stx : Syntax) : MacroM (TSyntax `term) := do
           return (← `($fnIdent $tArgs*))
   | _ => return (← `(_root_.ACL2.SExpr.nil))
 
-syntax "#acl" "{" acl2_event* "}" : command
+/-- Individual event elaborator marked as incremental. -/
+syntax (name := aclEvent) "#acl_event " acl2_event : command
 
-elab "#acl" "{" events:acl2_event* "}" : command => do
-  let mut defNames : List String := []
-  let mut thmNames : List String := []
-  let mut macroNames : List String := []
-  let mut constNames : List String := []
-  for ev in events do
+@[command_elab aclEvent, incremental]
+def elabAclEvent : CommandElab := fun stx => do
+  match stx with
+  | `(#acl_event $ev:acl2_event) =>
     match ev with
     | `(acl2_event| (defun $[$id:acl2_id]* ($[$args:acl2_id]* ) $body:acl2_sexpr)) =>
         let body' ← liftMacroM <| translateSExpr body
-        let nameId := mkIdent (sanitize (getIdsStr id))
+        let idArr := id.map (·.raw)
+        let nameId := mkIdent (sanitize (getIdStr (mkNullNode idArr)))
         let mut binders := #[]
         for arg in args do
           let argName := getIdStr arg.raw
           binders := binders.push (← `(bracketedBinder| ($(mkIdent (sanitize argName)) : _root_.ACL2.SExpr)))
         let cmd ← `(partial def $nameId $[$binders]* : _root_.ACL2.SExpr := $body')
         elabCommand cmd
-        defNames := (getIdsStr id) :: defNames
     | `(acl2_event| (defthm $[$id:acl2_id]* $prop:acl2_sexpr $[: $proof:term]?)) =>
         let prop' ← liftMacroM <| translateSExpr prop
         let vars ← liftMacroM <| collectFreeVars prop
-        let nameId := mkIdent (sanitize (getIdsStr id))
+        let idArr := id.map (·.raw)
+        let nameId := mkIdent (sanitize (getIdStr (mkNullNode idArr)))
         let mut seen := #[]
         let mut binders := #[]
         for v in vars do
@@ -176,22 +174,29 @@ elab "#acl" "{" events:acl2_event* "}" : command => do
             seen := seen.push v.getId
             binders := binders.push (← `(bracketedBinder| ($v : _root_.ACL2.SExpr)))
 
-        let cmd ← if let some p := proof then
-          `(set_option maxHeartbeats 1000000 in theorem $nameId $[$binders]* : _root_.ACL2.Logic.toBool $prop' = true := $p)
+        if let some p := proof then
+          let cmd ← `(set_option maxHeartbeats 1000000 in theorem $nameId $[$binders]* : _root_.ACL2.Logic.toBool $prop' = true := $p)
+          elabCommand cmd
         else
-          `(set_option maxHeartbeats 1000000 in theorem $nameId $[$binders]* : _root_.ACL2.Logic.toBool $prop' = true := by
+          let cmd ← `(set_option maxHeartbeats 1000000 in theorem $nameId $[$binders]* : _root_.ACL2.Logic.toBool $prop' = true := by
             first | acl2_grind | sorry)
-
-        elabCommand cmd
-        thmNames := (getIdsStr id) :: thmNames
+          elabCommand cmd
     | `(acl2_event| (defconst $id:acl2_id $val:acl2_sexpr)) =>
         let nameId := mkIdent (sanitize (getIdStr id.raw))
         let val' ← liftMacroM <| translateSExprValue val
         let cmd ← `(def $nameId : _root_.ACL2.SExpr := $val')
         elabCommand cmd
-        constNames := (getIdStr id.raw) :: constNames
     | _ => pure ()
+  | _ => throwUnsupportedSyntax
 
-  logInfo s!"#acl World updated:\n  Functions: {defNames.reverse}\n  Theorems: {thmNames.reverse}\n  Constants: {constNames.reverse}\n  Macros: {macroNames.reverse}"
+syntax "#acl" "{" acl2_event* "}" : command
+
+/-- The #acl block now expands to individual incremental #acl_event calls. -/
+macro_rules
+  | `(#acl { $events* }) => do
+      let mut res := #[]
+      for ev in events do
+        res := res.push (← `(#acl_event $ev))
+      return mkNullNode res
 
 end ACL2
