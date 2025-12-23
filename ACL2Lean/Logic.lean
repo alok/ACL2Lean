@@ -22,10 +22,13 @@ open ACL2
   | .atom (.number (.int n)) => n
   | _ => 0
 
+/-- Coerce an S-expression to a natural number for termination measures. -/
+@[inline, simp] def toNat (s : SExpr) : Nat :=
+  (toInt s).toNat
+
 /-- ACL2 `zp`: true if `n` is not a positive integer. -/
 @[inline, simp] def zp (n : SExpr) : SExpr :=
-  let val := toInt n
-  if val <= 0 then .atom (.bool true) else .nil
+  if toInt n <= 0 then .atom (.bool true) else .nil
 
 /-- ACL2 `plus`. -/
 @[inline, simp] def plus (a b : SExpr) : SExpr :=
@@ -180,6 +183,10 @@ open ACL2
   | _ => .atom (.bool true)
 
 -- Basic Axioms / Lemmas for proofs
+
+@[simp] theorem toNat_minus_one (n : SExpr) (h : toBool (zp n) = false) :
+  toNat (minus n (SExpr.atom (Atom.number (Number.int 1)))) < toNat n := by
+  sorry
 
 @[simp, grind] theorem car_cons (a d : SExpr) : car (cons a d) = a := rfl
 

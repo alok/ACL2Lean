@@ -4,7 +4,38 @@ import Lean
 namespace ACL2
 namespace Tactics
 
-open Logic Lean Elab Tactic
+open Logic Lean Elab Tactic Meta
+
+/--
+Helper to find the first recursive function application in an expression.
+-/
+partial def findRecursiveApp (e : Expr) : MetaM (Option (Name × Array Expr)) := do
+  let env ← getEnv
+  match e with
+  | .app .. =>
+    let fn := e.getAppFn
+    let args := e.getAppArgs
+    if let .const declName .. := fn then
+      -- Check if it's a recursive definition (has an induct principle)
+      if env.contains (declName ++ `induct) then
+        let s := declName.toString
+        -- Filter out common tactic/logic/init/lean namespaces
+        let isBuiltin := s.startsWith "Lean" || s.startsWith "Init" || s.startsWith "ACL2.Logic" || s.startsWith "ACL2.Tactics" || s == "toBool" || s == "if_" || s == "toInt" || s == "toNat" || s == "not" || s == "equal"
+        if !isBuiltin then
+          return some (declName, args)
+    for arg in args do
+      if let some res ← findRecursiveApp arg then
+        return some res
+    return none
+  | .lam _ _ b _ => findRecursiveApp b
+  | .forallE _ _ b _ => findRecursiveApp b
+  | .letE _ _ v b _ => do
+    match ← findRecursiveApp v with
+    | some res => return some res
+    | none => findRecursiveApp b
+  | .mdata _ e => findRecursiveApp e
+  | .proj _ _ e => findRecursiveApp e
+  | _ => return none
 
 macro "acl2_simp" : tactic =>
   `(tactic| simp [Logic.toBool, Logic.if_, Logic.plus, Logic.minus, Logic.times, Logic.div,
@@ -18,28 +49,42 @@ macro "acl2_grind" : tactic =>
   `(tactic| (acl2_simp; try grind))
 
 /--
-`acl2_induct f x y ...` applies the induction principle for the function `f`
-with the given arguments.
-Marked as incremental for performance.
+`acl2_induct [f [args...]]` applies the induction principle for the function `f`.
+If `f` is omitted, it tries to find a recursive function call in the goal.
 -/
-syntax (name := aclInduct) "acl2_induct " ident term* : tactic
+elab "acl2_induct" f:(ident)? args:term* : tactic => do
+  let (fName, fArgs) ← match f with
+    | some id => pure (id.getId, args)
+    | none => do
+      let goal ← getMainGoal
+      let target ← goal.getType
+      match ← findRecursiveApp target with
+      | some (name, eArgs) =>
+        let tArgs ← eArgs.mapM fun e => do
+          let stx ← Term.exprToSyntax e
+          return (TSyntax.mk stx)
+        pure (name, tArgs)
+      | none => throwError "Could not find a recursive function call to induct on."
 
-@[tactic aclInduct, incremental]
-def evalAclInduct : Tactic := fun stx => do
-  let f := stx[1]
-  let args := stx[2].getArgs
-  let fName := f.getId
   let inductName := fName ++ `induct
   let inductTerm := mkIdent inductName
+  let mut targets : Array (TSyntax ``Parser.Tactic.elimTarget) := fArgs.map fun a => ⟨a.raw⟩
 
-  -- Manually construct the induction tactic call
-  let mut cmd := mkNode ``Lean.Parser.Tactic.induction #[
-    mkAtom "induction",
-    mkNode `null args,
-    mkAtom "using",
-    inductTerm
-  ]
-  evalTactic cmd
+  if targets.isEmpty then
+     let mut fvarNames := #[]
+     for fvarId in (← getLCtx).getFVarIds do
+       let localDecl ← fvarId.getDecl
+       if !localDecl.isAuxDecl then
+         fvarNames := fvarNames.push localDecl.userName
+
+     if fvarNames.isEmpty then
+       evalTactic (← `(tactic| apply $(inductTerm)))
+     else
+       let fvarIdents := fvarNames.map mkIdent
+       let fvarTargets : Array (TSyntax ``Parser.Tactic.elimTarget) := fvarIdents.map fun id => ⟨id.raw⟩
+       evalTactic (← `(tactic| induction $[$fvarTargets],* using $inductTerm))
+  else
+     evalTactic (← `(tactic| induction $[$targets],* using $inductTerm))
 
 end Tactics
 end ACL2

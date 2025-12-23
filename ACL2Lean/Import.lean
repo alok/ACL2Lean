@@ -29,7 +29,7 @@ def summarizeFile (path : System.FilePath) : IO (Except String (Std.HashMap Stri
           | .mutualRecursion _ => "mutual-recursion"
           | .encapsulate _ => "encapsulate"
           | .makeEvent _ => "make-event"
-          | .defrec _ => "defrec"
+          | .defrec .. => "defrec"
           | .defconst .. => "defconst"
           | .defstobj .. => "defstobj"
           | .table .. => "table"

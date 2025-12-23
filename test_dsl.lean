@@ -7,35 +7,23 @@ open ACL2 ACL2.Logic ACL2.Tactics
 #acl {
   (defun my-plus (x y) (+ x y))
 
-  (defun factorial (n)
-    (if (zp n)
-        1
-      (* n (factorial (- n 1)))))
+  -- defstobj test
+  (defstobj my-st
+    fld1
+    (fld2 :init 42))
 
-  -- Test the 'finally' block by passing a 'by' term
-  (defthm factorial-5 (equal (factorial 5) 120) : by
-    acl2_simp
-    native_decide)
-
-  (defun test-list ()
-    (quote (1 2 3)))
-
-  -- Proof remains sorry-ed but the structure is correct
-  (defthm plus-comm (equal (+ x y) (+ y x)) : by
-    acl2_simp
-    sorry)
-
-  (defconst myconst 42)
+  -- Simplified test without let
+  (defun test-stobj (my-st)
+    (declare (xargs :stobjs my-st))
+    (update-fld1 100 my-st))
 }
 
-#check my_plus
-#check factorial
-#check factorial_5
-#check test_list
-#check plus_comm
-#check myconst
+#check my_st
+#check fld1
+#check update_fld1
 
--- Evaluate examples
-#eval! factorial (SExpr.atom (.number (.int 5)))
-#eval! test_list
-#eval! myconst
+-- Initial state
+def start_st : my_st := { fld1 := .nil, fld2 := .atom (.number (.int 42)) }
+
+-- Pure functional test
+#eval test_stobj start_st

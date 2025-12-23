@@ -8,3 +8,7 @@ name = "ACL2Lean"
 [[lean_exe]]
 name = "acl2lean"
 root = "Main"
+
+[[lean_exe]]
+name = "test_dsl"
+root = "test_dsl"

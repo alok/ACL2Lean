@@ -13,7 +13,7 @@ structure Symbol where
   deriving DecidableEq, BEq, Hashable, Inhabited
 
 instance : Repr Symbol where
-  reprPrec s _ := 
+  reprPrec s _ :=
     if s.package == "ACL2" then s.name else s.package ++ "::" ++ s.name
 
 /-- Keywords are stored without the leading colon. -/
@@ -105,7 +105,7 @@ structure PackageState where
   openImports : Std.HashMap String (List String) := {}
   deriving Inhabited, Repr
 
-/-- Top-level ACL2 event skeleton. Semantics filled in later. -/
+/-- Top-level ACL2 event skeleton. -/
 inductive Event
   | inPackage (name : String)
   | includeBook (path : String) (dirs : List String := [])
@@ -117,7 +117,7 @@ inductive Event
   | inTheory (body : SExpr)
   | encapsulate (events : List Event)
   | makeEvent (body : SExpr)
-  | defrec (name : Symbol)
+  | defrec (name : Symbol) (fields : List Symbol)
   | defconst (name : Symbol) (value : SExpr)
   | defstobj (name : Symbol) (fields : List SExpr)
   | table (name : Symbol) (args : List SExpr)
@@ -213,7 +213,11 @@ partial def classify (sexpr : SExpr) : Event :=
       .makeEvent rest
   | .cons (.atom (.symbol { name := "defrec", .. })) rest =>
       match rest.toList? with
-      | some (SExpr.atom (.symbol name) :: _) => .defrec name
+      | some (SExpr.atom (.symbol name) :: params :: _) =>
+          let fmls := match params.toList? with
+            | some lst => lst.filterMap (fun | SExpr.atom (.symbol s) => some s | _ => none)
+            | none => []
+          .defrec name fmls
       | _ => .skip sexpr
   | .cons (.atom (.symbol { name := "defconst", .. })) rest =>
       match rest.toList? with
@@ -233,11 +237,16 @@ partial def classify (sexpr : SExpr) : Event :=
 
 end Event
 
-/-- Placeholder semantics: interpret events into a growing environment. -/
+/-- Semantics: interpret events into a growing environment. -/
 structure World where
   package : PackageState := {}
   defs : Std.HashMap Symbol (List Symbol × SExpr) := {}
   macros : Std.HashMap Symbol (List Symbol × SExpr) := {}
+  theorems : Std.HashMap Symbol SExpr := {}
+  consts : Std.HashMap Symbol SExpr := {}
+  recs : Std.HashMap Symbol (List Symbol) := {}
+  stobjs : Std.HashMap Symbol (List SExpr) := {}
+  tables : Std.HashMap Symbol (List SExpr) := {}
   deriving Repr
 
 instance : Inhabited World :=
@@ -251,17 +260,17 @@ partial def step (w : World) (event : Event) : World :=
   | .inPackage name => { w with package := { w.package with current := name } }
   | .includeBook _ _ => w
   | .defun name formals _ _ body => { w with defs := w.defs.insert name (formals, body) }
-  | .defthm name body _ => { w with defs := w.defs.insert name ([], body) }
+  | .defthm name body _ => { w with theorems := w.theorems.insert name body }
   | .defmacro name formals _ _ body => { w with macros := w.macros.insert name (formals, body) }
   | .local e => step w e
   | .inTheory _ => w
   | .mutualRecursion evs => evs.foldl step w
   | .encapsulate evs => evs.foldl step w
   | .makeEvent _ => w
-  | .defrec _ => w
-  | .defconst name value => { w with defs := w.defs.insert name ([], value) }
-  | .defstobj _ _ => w
-  | .table _ _ => w
+  | .defrec name fields => { w with recs := w.recs.insert name fields }
+  | .defconst name value => { w with consts := w.consts.insert name value }
+  | .defstobj name fields => { w with stobjs := w.stobjs.insert name fields }
+  | .table name args => { w with tables := w.tables.insert name args }
   | .skip _ => w
 
 /-- Replay a script of events. -/
