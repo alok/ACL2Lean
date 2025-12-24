@@ -9,18 +9,20 @@ namespace ACL2
 
 /-- Get the leaf string value of a syntax node. -/
 partial def getLeafVal (stx : Syntax) : String :=
-  if let some n := stx.isNatLit? then toString n
-  else if let some str := stx.isStrLit? then str
-  else if stx.isIdent then stx.getId.toString
+  if stx.isIdent then stx.getId.toString
   else if stx.isAtom then stx.getAtomVal
-  else if stx.getArgs.size == 0 then ""
-  else if stx.getArgs.size == 1 then getLeafVal stx[0]!
+  else if let some n := stx.isNatLit? then toString n
+  else if let some str := stx.isStrLit? then str
   else
-    let parts := stx.getArgs.toList.map getLeafVal
-    if parts.contains "-" then
-       "".intercalate parts
+    let args := stx.getArgs
+    if args.size == 0 then ""
+    else if args.size == 1 then getLeafVal args[0]!
     else
-       parts[0]!
+      let parts := args.toList.map getLeafVal
+      if parts.contains "-" then
+         "".intercalate parts
+      else
+         parts[0]!
 
 /-- Sanitize ACL2 symbol names for Lean. -/
 def sanitize (s : String) : Name :=
@@ -64,6 +66,13 @@ def mapBuiltinStx (s : String) : Ident :=
     | "or" => `_root_.ACL2.Logic.or
     | "implies" => `_root_.ACL2.Logic.implies
     | "if" => `if_
+    | "stringp" => `_root_.ACL2.Logic.stringp
+    | "string-append" => `_root_.ACL2.Logic.string_append
+    | "logand" => `_root_.ACL2.Logic.logand
+    | "logor" => `_root_.ACL2.Logic.logor
+    | "logxor" => `_root_.ACL2.Logic.logxor
+    | "lognot" => `_root_.ACL2.Logic.lognot
+    | "ash" => `_root_.ACL2.Logic.ash
     | s' => sanitize s'
   mkIdent name
 
@@ -72,12 +81,9 @@ partial def stripWrappers (stx : Syntax) : Syntax :=
   if stx.isIdent || stx.isAtom || (stx.isNatLit?).isSome || (stx.isStrLit?).isSome then
     stx
   else
-    let k := stx.getKind
-    if k == `ACL2.acl2_id || k == `ACL2.acl2_sexpr || k == `ACL2.acl2_event then
-      if stx.getArgs.size == 1 then
-        stripWrappers stx[0]!
-      else
-        stx
+    let args := stx.getArgs
+    if args.size == 1 then
+      stripWrappers args[0]!
     else
       stx
 
@@ -114,12 +120,14 @@ partial def translateSExprValue (stx : Syntax) : MacroM (TSyntax `term) := do
 
 /-- Detect built-ins to avoid collecting them as variables. -/
 def isBuiltin (s : String) : Bool :=
-  ["+", "-", "*", "/", "<", ">", "=", "<=", ">=", "if", "zp", "evenp", "equal", "consp", "atom", "car", "cdr", "cons", "not", "and", "or", "implies", "t", "nil", "quote", "let", "declare"].contains s
+  ["+", "-", "*", "/", "<", ">", "=", "<=", ">=", "if", "zp", "evenp", "equal", "consp", "atom", "car", "cdr", "cons", "not", "and", "or", "implies", "t", "nil", "quote", "let", "declare", "stringp", "string-append", "logand", "logor", "logxor", "lognot", "ash"].contains s
 
 /-- Collect free variables. -/
 partial def collectFreeVars (stx : Syntax) : MacroM (List Ident) := do
-  if (stx.isNatLit?).isSome || (stx.isStrLit?).isSome then return []
-  let name := (getLeafVal stx |>.trimAscii).toString
+  let s := stripWrappers stx
+  if let some _ := s.isNatLit? then return []
+  if let some _ := s.isStrLit? then return []
+  let name := (getLeafVal s |>.trimAscii).toString
   if name.toNat?.isSome then return []
   if name != "" && !name.contains '(' && !name.contains ')' && !name.contains ' ' then
     if isBuiltin name || name == "_" || name == "?" then return []
@@ -140,14 +148,15 @@ partial def collectFreeVars (stx : Syntax) : MacroM (List Ident) := do
 
 /-- Translate ACL2 S-expression to Lean code. -/
 partial def translateSExpr (stx : Syntax) : MacroM (TSyntax `term) := do
-  if let some n := stx.isNatLit? then
+  let s := stripWrappers stx
+  if let some n := s.isNatLit? then
     let nLit := Syntax.mkNumLit (toString n)
     return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.number (ACL2.Number.int (Int.ofNat $nLit)))))
-  else if let some str := stx.isStrLit? then
+  else if let some str := s.isStrLit? then
     let sLit := Syntax.mkStrLit str
     return (← `(_root_.ACL2.SExpr.atom (ACL2.Atom.string $sLit)))
   else
-    let name := (getLeafVal stx |>.trimAscii).toString
+    let name := (getLeafVal s |>.trimAscii).toString
     if let some n := name.toNat? then
        let nStx := Lean.quote n
        return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.number (ACL2.Number.int (Int.ofNat $nStx)))))

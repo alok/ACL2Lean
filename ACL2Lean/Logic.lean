@@ -182,6 +182,43 @@ open ACL2
   | .cons _ _ => .nil
   | _ => .atom (.bool true)
 
+/-- ACL2 `stringp`. -/
+@[inline, simp] def stringp (s : SExpr) : SExpr :=
+  match s with
+  | .atom (.string _) => .atom (.bool true)
+  | _ => .nil
+
+/-- ACL2 `string-append`. -/
+@[inline, simp] def string_append (a b : SExpr) : SExpr :=
+  match a, b with
+  | .atom (.string s1), .atom (.string s2) => .atom (.string (s1 ++ s2))
+  | _, _ => .nil
+
+/-- ACL2 `logand`. -/
+@[inline, simp] def logand (a b : SExpr) : SExpr :=
+  .atom (.number (.int (Nat.land (toInt a).toNat (toInt b).toNat)))
+
+/-- ACL2 `logor`. -/
+@[inline, simp] def logor (a b : SExpr) : SExpr :=
+  .atom (.number (.int (Nat.lor (toInt a).toNat (toInt b).toNat)))
+
+/-- ACL2 `logxor`. -/
+@[inline, simp] def logxor (a b : SExpr) : SExpr :=
+  .atom (.number (.int (Nat.xor (toInt a).toNat (toInt b).toNat)))
+
+/-- ACL2 `lognot`. -/
+@[inline, simp] def lognot (a : SExpr) : SExpr :=
+  .atom (.number (.int (-(toInt a) - 1)))
+
+/-- ACL2 `ash` (arithmetic shift). -/
+@[inline, simp] def ash (n i : SExpr) : SExpr :=
+  let val := toInt n
+  let count := toInt i
+  if count >= 0 then
+    .atom (.number (.int (val <<< count.toNat)))
+  else
+    .atom (.number (.int (val >>> (-count).toNat)))
+
 instance : OfNat SExpr n where
   ofNat := .atom (.number (.int n))
 
