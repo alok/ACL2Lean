@@ -317,11 +317,8 @@ def elabAclEvent : CommandElab := fun stx => do
         let stobjName := sanitize stobjNameStr
         let stobjId := mkIdent stobjName
         
-        modifyEnv fun env => stobjExtension.addEntry env stobjName
-        
         let mut structFields := #[]
-        let mut accessors := #[]
-        let mut updaters := #[]
+        let mut fieldSpecs := #[]
         
         for field in fields do
           let (fieldName, initVal) ← match field with
@@ -341,22 +338,30 @@ def elabAclEvent : CommandElab := fun stx => do
           let fldSan := sanitize fieldName
           let fldId := mkIdent fldSan
           structFields := structFields.push (← `(Lean.Parser.Command.structExplicitBinder| ($fldId : _root_.ACL2.SExpr := $initVal)))
-          
-          let accId := mkIdent fldSan
-          accessors := accessors.push (← `(def $accId (s : $stobjId) : _root_.ACL2.SExpr := s.$fldId))
-          
-          let updName := "update-" ++ fieldName
-          let updId := mkIdent (sanitize updName)
-          updaters := updaters.push (← `(def $updId (val : _root_.ACL2.SExpr) (s : $stobjId) : $stobjId := { s with $fldId:ident := val }))
+          fieldSpecs := fieldSpecs.push (fieldName, fldId)
         
-        let structCmd ← `(structure $stobjId where $[$structFields]*)
+        let structCmd ← `(structure $stobjId where $[$structFields]* deriving _root_.Repr)
         elabCommand structCmd
-        for acc in accessors do elabCommand acc
-        for upd in updaters do elabCommand upd
+        
+        modifyEnv fun env => stobjExtension.addEntry env stobjName
         
         let monadId := mkIdent (Name.mkSimple (stobjName.toString ++ "M"))
         let monadCmd ← `(abbrev $monadId := StateM $stobjId)
         elabCommand monadCmd
+
+        for (fieldName, fldId) in fieldSpecs do
+          let accId := mkIdent (sanitize fieldName)
+          elabCommand (← `(def $accId (s : $stobjId) : _root_.ACL2.SExpr := s.$fldId))
+          
+          let accIdM := mkIdent (Name.mkSimple ((sanitize fieldName).toString ++ "M"))
+          elabCommand (← `(def $accIdM : $monadId _root_.ACL2.SExpr := do return (← get).$fldId))
+          
+          let updName := "update-" ++ fieldName
+          let updId := mkIdent (sanitize updName)
+          elabCommand (← `(def $updId (val : _root_.ACL2.SExpr) (s : $stobjId) : $stobjId := { s with $fldId:ident := val }))
+          
+          let updIdM := mkIdent (sanitize (updName ++ "M"))
+          elabCommand (← `(def $updIdM (val : _root_.ACL2.SExpr) : $monadId Unit := modify fun s => { s with $fldId:ident := val }))
     | _ => pure ()
   | _ => throwUnsupportedSyntax
 
