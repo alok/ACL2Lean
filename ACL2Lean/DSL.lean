@@ -7,6 +7,21 @@ open Lean Elab Command Term Meta
 
 namespace ACL2
 
+/-- Get the leaf string value of a syntax node. -/
+partial def getLeafVal (stx : Syntax) : String :=
+  if let some n := stx.isNatLit? then toString n
+  else if let some str := stx.isStrLit? then str
+  else if stx.isIdent then stx.getId.toString
+  else if stx.isAtom then stx.getAtomVal
+  else if stx.getArgs.size == 0 then ""
+  else if stx.getArgs.size == 1 then getLeafVal stx[0]!
+  else
+    let parts := stx.getArgs.toList.map getLeafVal
+    if parts.contains "-" then
+       "".intercalate parts
+    else
+       parts[0]!
+
 /-- Sanitize ACL2 symbol names for Lean. -/
 def sanitize (s : String) : Name :=
   let s' := s.trimAscii.toString
@@ -59,42 +74,36 @@ partial def stripWrappers (stx : Syntax) : Syntax :=
   else
     let k := stx.getKind
     if k == `ACL2.acl2_id || k == `ACL2.acl2_sexpr || k == `ACL2.acl2_event then
-      if stx.getArgs.size > 0 then
-        stripWrappers stx[0]
+      if stx.getArgs.size == 1 then
+        stripWrappers stx[0]!
       else
         stx
     else
       stx
 
-/-- Get the string value of a syntax node. -/
-def getLeafVal (stx : Syntax) : String :=
-  let s := stripWrappers stx
-  if s.isIdent then s.getId.toString
-  else if s.isAtom then s.getAtomVal
-  else if let some n := s.isNatLit? then toString n
-  else if let some str := s.isStrLit? then str
-  else ""
-
 /-- Translate ACL2 S-expression to a raw SExpr value in Lean. -/
 partial def translateSExprValue (stx : Syntax) : MacroM (TSyntax `term) := do
   let s := stripWrappers stx
   if let some n := s.isNatLit? then
-    let nLit := Syntax.mkNumLit (toString n)
-    return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.number (_root_.ACL2.Number.int (Int.ofNat $nLit)))))
+    let nStx := Lean.quote n
+    return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.number (_root_.ACL2.Number.int (Int.ofNat $nStx)))))
   else if let some str := s.isStrLit? then
-    let sLit := Syntax.mkStrLit str
-    return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.string $sLit)))
+    let sStx := Lean.quote str
+    return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.string $sStx)))
   else
     let name := (getLeafVal s |>.trimAscii).toString
-    if name != "" && !name.contains '(' && !name.contains ')' && !name.contains ' ' then
+    if let some n := name.toNat? then
+       let nStx := Lean.quote n
+       return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.number (_root_.ACL2.Number.int (Int.ofNat $nStx)))))
+    else if name != "" && !name.contains '(' && !name.contains ')' && !name.contains ' ' then
       if name == "t" then return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.bool true)))
       else if name == "nil" then return (← `(_root_.ACL2.SExpr.nil))
       else if name == "_" || name == "?" then return (← `(_))
       else
         let nameLit := Syntax.mkStrLit name
         return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.symbol { package := "ACL2", name := $nameLit })))
-    else if stx.getArgs.size > 0 && stx[0].isAtom && stx[0].getAtomVal == "(" then
-      let args := stx[1].getArgs
+    else if stx.getArgs.size > 0 && stx[0]!.isAtom && stx[0]!.getAtomVal == "(" then
+      let args := stx[1]!.getArgs
       let mut res ← `(_root_.ACL2.SExpr.nil)
       for i in [0:args.size] do
         let s' ← translateSExprValue args[args.size - 1 - i]!
@@ -111,11 +120,12 @@ def isBuiltin (s : String) : Bool :=
 partial def collectFreeVars (stx : Syntax) : MacroM (List Ident) := do
   if (stx.isNatLit?).isSome || (stx.isStrLit?).isSome then return []
   let name := (getLeafVal stx |>.trimAscii).toString
+  if name.toNat?.isSome then return []
   if name != "" && !name.contains '(' && !name.contains ')' && !name.contains ' ' then
-    if isBuiltin name || name == "_" || name == "?" || name.toNat?.isSome then return []
+    if isBuiltin name || name == "_" || name == "?" then return []
     else return [mkIdent (sanitize name)]
-  else if stx.getArgs.size > 0 && stx[0].isAtom && stx[0].getAtomVal == "(" then
-    let args := stx[1].getArgs
+  else if stx.getArgs.size > 0 && stx[0]!.isAtom && stx[0]!.getAtomVal == "(" then
+    let args := stx[1]!.getArgs
     if args.size == 0 then return []
     else
       let fnName := (getLeafVal args[0]! |>.trimAscii).toString
@@ -138,16 +148,20 @@ partial def translateSExpr (stx : Syntax) : MacroM (TSyntax `term) := do
     return (← `(_root_.ACL2.SExpr.atom (ACL2.Atom.string $sLit)))
   else
     let name := (getLeafVal stx |>.trimAscii).toString
-    if name != "" && !name.contains '(' && !name.contains ')' && !name.contains ' ' then
+    if let some n := name.toNat? then
+       let nStx := Lean.quote n
+       return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.number (ACL2.Number.int (Int.ofNat $nStx)))))
+    else if name != "" && !name.contains '(' && !name.contains ')' && !name.contains ' ' then
       if name == "t" then return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.bool true)))
       else if name == "nil" then return (← `(_root_.ACL2.SExpr.nil))
       else if name == "_" || name == "?" then return (← `(_))
       else return mkIdent (sanitize name)
-    else if stx.getArgs.size > 0 && stx[0].isAtom && stx[0].getAtomVal == "(" then
-      let args := stx[1].getArgs
+    else if stx.getArgs.size > 0 && stx[0]!.isAtom && stx[0]!.getAtomVal == "(" then
+      let args := stx[1]!.getArgs
       if args.size == 0 then return (← `(_root_.ACL2.SExpr.nil))
       else
-        let fnName := (getLeafVal args[0]! |>.trimAscii).toString
+        let firstAtom := args[0]!
+        let fnName := (getLeafVal firstAtom |>.trimAscii).toString
         if fnName == "if" then
           if args.size == 4 then
             let c ← translateSExpr args[1]!
@@ -166,11 +180,11 @@ partial def translateSExpr (stx : Syntax) : MacroM (TSyntax `term) := do
           let bindings := args[1]!
           let body := args[2]!
           let mut letBody ← translateSExpr body
-          if bindings.getArgs.size > 0 && bindings[0].isAtom && bindings[0].getAtomVal == "(" then
-             let bs := bindings[1].getArgs
+          if bindings.getArgs.size > 0 && bindings[0]!.isAtom && bindings[0]!.getAtomVal == "(" then
+             let bs := bindings[1]!.getArgs
              for b in bs.reverse do
-               if b.getArgs.size > 0 && b[0].isAtom && b[0].getAtomVal == "(" then
-                  let pair := b[1].getArgs
+               if b.getArgs.size > 0 && b[0]!.isAtom && b[0]!.getAtomVal == "(" then
+                  let pair := b[1]!.getArgs
                   if pair.size == 2 then
                      let varName := (getLeafVal pair[0]! |>.trimAscii).toString
                      let varId := mkIdent (sanitize varName)
@@ -211,20 +225,20 @@ def elabAclEvent : CommandElab := fun stx => do
   match stx with
   | `(#acl_event $ev:acl2_event) =>
     match ev with
-    | `(acl2_event| (defun $id:acl2_id ($[$args:acl2_id]* ) $[$bodyParts:acl2_sexpr]* ) $[termination_by $term?]? $[decreasing_by $dec?]?) =>
+    | `(acl2_event| (defun $id:acl2_id ( $[$args:acl2_id]* ) $[$bodyParts:acl2_sexpr]* ) $[termination_by $term?]? $[decreasing_by $dec?]?) =>
         let env ← getEnv
         let mut stobjDecls : NameSet := {}
         let mut realBodyParts : Array (TSyntax `acl2_sexpr) := #[]
         
         for part in bodyParts do
           let partRaw := part.raw
-          if partRaw.getArgs.size > 0 && partRaw[0].isAtom && partRaw[0].getAtomVal == "(" then
-             let dArgs := partRaw[1].getArgs
+          if partRaw.getArgs.size > 0 && partRaw[0]!.isAtom && partRaw[0]!.getAtomVal == "(" then
+             let dArgs := partRaw[1]!.getArgs
              if dArgs.size > 0 && (getLeafVal dArgs[0]! |>.trimAscii).toString == "declare" then
                 for i in [1:dArgs.size] do
                    let d := dArgs[i]!
-                   if d.getArgs.size > 0 && d[0].isAtom && d[0].getAtomVal == "(" then
-                      let xArgs := d[1].getArgs
+                   if d.getArgs.size > 0 && d[0]!.isAtom && d[0]!.getAtomVal == "(" then
+                      let xArgs := d[1]!.getArgs
                       if xArgs.size > 0 && (getLeafVal xArgs[0]! |>.trimAscii).toString == "xargs" then
                          for j in [1:xArgs.size] do
                             if (getLeafVal xArgs[j]! |>.trimAscii).toString == ":stobjs" && j + 1 < xArgs.size then
@@ -240,27 +254,23 @@ def elabAclEvent : CommandElab := fun stx => do
           
         let nameId := mkIdent (sanitize (getLeafVal id.raw |>.trimAscii.toString))
         let mut binders := #[]
-        let mut hasStobj := false
         for arg in args do
           let argName := (getLeafVal arg.raw |>.trimAscii).toString
           let argSan := sanitize argName
           if isStobj env argSan || stobjDecls.contains argSan then
-             hasStobj := true
              binders := binders.push (← `(bracketedBinder| ($(mkIdent argSan) : $(mkIdent argSan))))
           else
              binders := binders.push (← `(bracketedBinder| ($(mkIdent argSan) : _root_.ACL2.SExpr)))
         
-        let retType ← if hasStobj then `(_) else `(_root_.ACL2.SExpr)
-        
         if let some t := term? then
           if let some d := dec? then
-            let cmd ← `(def $nameId $[$binders]* : $retType := $body' termination_by $t decreasing_by $d)
+            let cmd ← `(def $nameId $[$binders]* := $body' termination_by $t decreasing_by $d)
             elabCommand cmd
           else
-            let cmd ← `(def $nameId $[$binders]* : $retType := $body' termination_by $t)
+            let cmd ← `(def $nameId $[$binders]* := $body' termination_by $t)
             elabCommand cmd
         else
-          let cmd ← `(partial def $nameId $[$binders]* : $retType := $body')
+          let cmd ← `(def $nameId $[$binders]* := $body')
           elabCommand cmd
     | `(acl2_event| (defthm $id:acl2_id $prop:acl2_sexpr ) $[: $proof:term]?) =>
         let prop' ← liftMacroM <| translateSExpr prop
@@ -285,7 +295,7 @@ def elabAclEvent : CommandElab := fun stx => do
         let val' ← liftMacroM <| translateSExprValue val
         let cmd ← `(def $nameId : _root_.ACL2.SExpr := $val')
         elabCommand cmd
-    | `(acl2_event| (defrec $id:acl2_id ($[$fields:acl2_id]* ) $body:acl2_sexpr)) =>
+    | `(acl2_event| (defrec $id:acl2_id ( $[$fields:acl2_id]* ) $body:acl2_sexpr)) =>
         let nameId := mkIdent (sanitize (getLeafVal id.raw |>.trimAscii.toString))
         let mut structFields := #[]
         for field in fields do
@@ -293,7 +303,7 @@ def elabAclEvent : CommandElab := fun stx => do
           structFields := structFields.push (← `(Lean.Parser.Command.structExplicitBinder| ($fieldName : _root_.ACL2.SExpr)))
         let cmd ← `(structure $nameId where $[$structFields]*)
         elabCommand cmd
-    | `(acl2_event| (defstobj $id:acl2_id $fields:acl2_sexpr*)) =>
+    | `(acl2_event| (defstobj $id:acl2_id $[$fields:acl2_sexpr]*)) =>
         let stobjNameStr := (getLeafVal id.raw |>.trimAscii).toString
         let stobjName := sanitize stobjNameStr
         let stobjId := mkIdent stobjName
@@ -308,12 +318,13 @@ def elabAclEvent : CommandElab := fun stx => do
           let (fieldName, initVal) ← match field with
             | `(acl2_sexpr| $i:acl2_id) => pure ((getLeafVal i.raw |>.trimAscii).toString, ← `(_root_.ACL2.SExpr.nil))
             | `(acl2_sexpr| ($ss*)) =>
-                if ss.isEmpty then throwUnsupportedSyntax
-                let name := (getLeafVal ss[0]! |>.trimAscii).toString
+                let ssArgs := ss
+                if ssArgs.isEmpty then throwUnsupportedSyntax
+                let name := (getLeafVal ssArgs[0]! |>.trimAscii).toString
                 let mut init := ← `(_root_.ACL2.SExpr.nil)
-                for i in [1:ss.size] do
-                  let s := ss[i]!
-                  if (getLeafVal s |>.trimAscii).toString == ":init" && i + 1 < ss.size then
+                for i in [1:ssArgs.size] do
+                  let s := ssArgs[i]!
+                  if (getLeafVal s |>.trimAscii).toString == ":init" && i + 1 < ssArgs.size then
                     init ← liftMacroM <| translateSExprValue ss[i+1]!
                 pure (name, init)
             | _ => throwUnsupportedSyntax
@@ -327,8 +338,7 @@ def elabAclEvent : CommandElab := fun stx => do
           
           let updName := "update-" ++ fieldName
           let updId := mkIdent (sanitize updName)
-          let updLVal : TSyntax `Lean.Parser.Term.structInstLVal := ⟨fldId.raw⟩
-          updaters := updaters.push (← `(def $updId (val : _root_.ACL2.SExpr) (s : $stobjId) : $stobjId := { s with $updLVal := val }))
+          updaters := updaters.push (← `(def $updId (val : _root_.ACL2.SExpr) (s : $stobjId) : $stobjId := { s with $fldId:ident := val }))
         
         let structCmd ← `(structure $stobjId where $[$structFields]*)
         elabCommand structCmd
@@ -338,7 +348,6 @@ def elabAclEvent : CommandElab := fun stx => do
         let monadId := mkIdent (Name.mkSimple (stobjName.toString ++ "M"))
         let monadCmd ← `(abbrev $monadId := StateM $stobjId)
         elabCommand monadCmd
-
     | _ => pure ()
   | _ => throwUnsupportedSyntax
 

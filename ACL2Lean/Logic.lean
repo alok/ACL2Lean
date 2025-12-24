@@ -182,6 +182,9 @@ open ACL2
   | .cons _ _ => .nil
   | _ => .atom (.bool true)
 
+instance : OfNat SExpr n where
+  ofNat := .atom (.number (.int n))
+
 -- Basic Axioms / Lemmas for proofs
 
 @[simp] theorem toNat_minus_one (n : SExpr) (h : toBool (zp n) = false) :
