@@ -52,21 +52,32 @@ def mapBuiltinStx (s : String) : Ident :=
     | s' => sanitize s'
   mkIdent name
 
-/-- Get the string value of a syntax node by concatenating all atoms. -/
-partial def getLeafVal (stx : Syntax) : String :=
-  if let some n := stx.isNatLit? then toString n
-  else if let some str := stx.isStrLit? then str
-  else if stx.isIdent then stx.getId.toString
-  else if stx.isAtom then stx.getAtomVal
+/-- Recursively strip category wrappers from syntax. -/
+partial def stripWrappers (stx : Syntax) : Syntax :=
+  if stx.isIdent || stx.isAtom || (stx.isNatLit?).isSome || (stx.isStrLit?).isSome then
+    stx
   else
-    let args := stx.getArgs
-    if args.size == 1 then getLeafVal args[0]!
-    else if args.size == 0 then ""
-    else args.foldl (fun acc a => acc ++ getLeafVal a) ""
+    let k := stx.getKind
+    if k == `ACL2.acl2_id || k == `ACL2.acl2_sexpr || k == `ACL2.acl2_event then
+      if stx.getArgs.size > 0 then
+        stripWrappers stx[0]
+      else
+        stx
+    else
+      stx
+
+/-- Get the string value of a syntax node. -/
+def getLeafVal (stx : Syntax) : String :=
+  let s := stripWrappers stx
+  if s.isIdent then s.getId.toString
+  else if s.isAtom then s.getAtomVal
+  else if let some n := s.isNatLit? then toString n
+  else if let some str := s.isStrLit? then str
+  else ""
 
 /-- Translate ACL2 S-expression to a raw SExpr value in Lean. -/
 partial def translateSExprValue (stx : Syntax) : MacroM (TSyntax `term) := do
-  let s := stx
+  let s := stripWrappers stx
   if let some n := s.isNatLit? then
     let nLit := Syntax.mkNumLit (toString n)
     return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.number (_root_.ACL2.Number.int (Int.ofNat $nLit)))))
@@ -82,8 +93,8 @@ partial def translateSExprValue (stx : Syntax) : MacroM (TSyntax `term) := do
       else
         let nameLit := Syntax.mkStrLit name
         return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.symbol { package := "ACL2", name := $nameLit })))
-    else if s.getArgs.size > 0 && s[0].isAtom && s[0].getAtomVal == "(" then
-      let args := s[1].getArgs
+    else if stx.getArgs.size > 0 && stx[0].isAtom && stx[0].getAtomVal == "(" then
+      let args := stx[1].getArgs
       let mut res ← `(_root_.ACL2.SExpr.nil)
       for i in [0:args.size] do
         let s' ← translateSExprValue args[args.size - 1 - i]!
@@ -239,15 +250,17 @@ def elabAclEvent : CommandElab := fun stx => do
           else
              binders := binders.push (← `(bracketedBinder| ($(mkIdent argSan) : _root_.ACL2.SExpr)))
         
+        let retType ← if hasStobj then `(_) else `(_root_.ACL2.SExpr)
+        
         if let some t := term? then
           if let some d := dec? then
-            let cmd ← `(def $nameId $[$binders]* := $body' termination_by $t decreasing_by $d)
+            let cmd ← `(def $nameId $[$binders]* : $retType := $body' termination_by $t decreasing_by $d)
             elabCommand cmd
           else
-            let cmd ← `(def $nameId $[$binders]* := $body' termination_by $t)
+            let cmd ← `(def $nameId $[$binders]* : $retType := $body' termination_by $t)
             elabCommand cmd
         else
-          let cmd ← `(partial def $nameId $[$binders]* := $body')
+          let cmd ← `(partial def $nameId $[$binders]* : $retType := $body')
           elabCommand cmd
     | `(acl2_event| (defthm $id:acl2_id $prop:acl2_sexpr ) $[: $proof:term]?) =>
         let prop' ← liftMacroM <| translateSExpr prop
