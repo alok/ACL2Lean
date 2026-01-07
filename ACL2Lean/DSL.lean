@@ -238,7 +238,7 @@ def elabAclEvent : CommandElab := fun stx => do
         let env ← getEnv
         let mut stobjDecls : NameSet := {}
         let mut realBodyParts : Array (TSyntax `acl2_sexpr) := #[]
-        
+
         for part in bodyParts do
           let partRaw := part.raw
           if partRaw.getArgs.size > 0 && partRaw[0]!.isAtom && partRaw[0]!.getAtomVal == "(" then
@@ -257,10 +257,10 @@ def elabAclEvent : CommandElab := fun stx => do
                 realBodyParts := realBodyParts.push part
           else
              realBodyParts := realBodyParts.push part
-        
+
         let body' ← if realBodyParts.isEmpty then `(_root_.ACL2.SExpr.nil)
                     else liftMacroM <| translateSExpr realBodyParts[realBodyParts.size - 1]!
-          
+
         let nameId := mkIdent (sanitize (getLeafVal id.raw |>.trimAscii.toString))
         let mut binders := #[]
         for arg in args do
@@ -270,7 +270,7 @@ def elabAclEvent : CommandElab := fun stx => do
              binders := binders.push (← `(bracketedBinder| ($(mkIdent argSan) : $(mkIdent argSan))))
           else
              binders := binders.push (← `(bracketedBinder| ($(mkIdent argSan) : _root_.ACL2.SExpr)))
-        
+
         if let some t := term? then
           if let some d := dec? then
             let cmd ← `(def $nameId $[$binders]* := $body' termination_by $t decreasing_by $d)
@@ -291,7 +291,7 @@ def elabAclEvent : CommandElab := fun stx => do
           if !seen.contains v.getId then
             seen := seen.push v.getId
             binders := binders.push (← `(bracketedBinder| ($v : _root_.ACL2.SExpr)))
-        
+
         if let some p := proof then
           let cmd ← `(set_option maxHeartbeats 1000000 in theorem $nameId $[$binders]* : _root_.ACL2.Logic.toBool $prop' = true := $p)
           elabCommand cmd
@@ -316,10 +316,10 @@ def elabAclEvent : CommandElab := fun stx => do
         let stobjNameStr := (getLeafVal id.raw |>.trimAscii).toString
         let stobjName := sanitize stobjNameStr
         let stobjId := mkIdent stobjName
-        
+
         let mut structFields := #[]
         let mut fieldSpecs := #[]
-        
+
         for field in fields do
           let (fieldName, initVal) ← match field with
             | `(acl2_sexpr| $i:acl2_id) => pure ((getLeafVal i.raw |>.trimAscii).toString, ← `(_root_.ACL2.SExpr.nil))
@@ -334,17 +334,17 @@ def elabAclEvent : CommandElab := fun stx => do
                     init ← liftMacroM <| translateSExprValue ss[i+1]!
                 pure (name, init)
             | _ => throwUnsupportedSyntax
-          
+
           let fldSan := sanitize fieldName
           let fldId := mkIdent fldSan
           structFields := structFields.push (← `(Lean.Parser.Command.structExplicitBinder| ($fldId : _root_.ACL2.SExpr := $initVal)))
           fieldSpecs := fieldSpecs.push (fieldName, fldId)
-        
+
         let structCmd ← `(structure $stobjId where $[$structFields]* deriving _root_.Repr)
         elabCommand structCmd
-        
+
         modifyEnv fun env => stobjExtension.addEntry env stobjName
-        
+
         let monadId := mkIdent (Name.mkSimple (stobjName.toString ++ "M"))
         let monadCmd ← `(abbrev $monadId := StateM $stobjId)
         elabCommand monadCmd
@@ -352,14 +352,14 @@ def elabAclEvent : CommandElab := fun stx => do
         for (fieldName, fldId) in fieldSpecs do
           let accId := mkIdent (sanitize fieldName)
           elabCommand (← `(def $accId (s : $stobjId) : _root_.ACL2.SExpr := s.$fldId))
-          
+
           let accIdM := mkIdent (Name.mkSimple ((sanitize fieldName).toString ++ "M"))
           elabCommand (← `(def $accIdM : $monadId _root_.ACL2.SExpr := do return (← get).$fldId))
-          
+
           let updName := "update-" ++ fieldName
           let updId := mkIdent (sanitize updName)
           elabCommand (← `(def $updId (val : _root_.ACL2.SExpr) (s : $stobjId) : $stobjId := { s with $fldId:ident := val }))
-          
+
           let updIdM := mkIdent (sanitize (updName ++ "M"))
           elabCommand (← `(def $updIdM (val : _root_.ACL2.SExpr) : $monadId Unit := modify fun s => { s with $fldId:ident := val }))
     | _ => pure ()
