@@ -239,11 +239,54 @@ private def parsedTopLevelInTheoryLooksRight : Bool :=
       | _ => false
   | .error _ => false
 
+private def parsedWithOutputWrappedDefthmLooksRight : Bool :=
+  match parseOne "(WITH-OUTPUT :OFF :ALL (DEFTHM WRAPPED (EQUAL X X)))" with
+  | .ok sx =>
+      match Event.classify sx with
+      | .defthm { name := "wrapped", .. } info =>
+          info.body = SExpr.ofList
+            [ .atom (.symbol { name := "equal" })
+            , .atom (.symbol { name := "x" })
+            , .atom (.symbol { name := "x" })
+            ]
+      | _ => false
+  | .error _ => false
+
+private def parsedMakeEventEncapsulateLooksRight : Bool :=
+  match parseOne "(MAKE-EVENT `(ENCAPSULATE NIL
+                                 (LOCAL
+                                  (DEFTHM CHECK-IT!-WORKS
+                                    (EQUAL X X)
+                                    :RULE-CLASSES NIL))
+                                 (DEFTHM BADGE-PRIM-TYPE
+                                   (EQUAL X X)
+                                   :HINTS ((\"Goal\"
+                                            :IN-THEORY (DISABLE CHECK-IT! HONS-GET))))))" with
+  | .ok sx =>
+      match Event.flattenList [Event.classify sx] with
+      | [ .defthm { name := "check-it!-works", .. } checkInfo
+        , .defthm { name := "badge-prim-type", .. } badgeInfo
+        ] =>
+          checkInfo.ruleClasses = [] &&
+            match badgeInfo.hintGoals with
+            | [hint] =>
+                hint.goal = "Goal" &&
+                hint.inTheory? =
+                  some (.disable
+                    [ .atom (.symbol { name := "check-it!" })
+                    , .atom (.symbol { name := "hons-get" })
+                    ])
+            | _ => false
+      | _ => false
+  | .error _ => false
+
 #guard parsedQualifiedBuiltinLooksRight
 #guard parsedUppercaseKeywordLooksRight
 #guard parsedUppercaseDefunLooksRight
 #guard parsedDefthmMetadataLooksRight
 #guard parsedTopLevelInTheoryLooksRight
+#guard parsedWithOutputWrappedDefthmLooksRight
+#guard parsedMakeEventEncapsulateLooksRight
 
 end Parse
 

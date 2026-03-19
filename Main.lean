@@ -3,16 +3,6 @@ import ACL2Lean
 private def theoremMatches (needle : String) (name : ACL2.Symbol) : Bool :=
   name.normalizedName = needle.map Char.toLower
 
-private partial def flattenEvents (event : ACL2.Event) : List ACL2.Event :=
-  match event with
-  | .local inner => flattenEvents inner
-  | .mutualRecursion events => events.foldr (fun ev acc => flattenEvents ev ++ acc) []
-  | .encapsulate events => events.foldr (fun ev acc => flattenEvents ev ++ acc) []
-  | other => [other]
-
-private def flattenEventList (events : List ACL2.Event) : List ACL2.Event :=
-  events.foldr (fun ev acc => flattenEvents ev ++ acc) []
-
 private def printTheoremMetadata (name : ACL2.Symbol) (info : ACL2.TheoremInfo) : IO Unit := do
   IO.println s!"theorem {repr name}"
   let ruleClasses := info.ruleClasses.map ACL2.RuleClass.summary
@@ -42,7 +32,7 @@ private def printTheoremMetadata (name : ACL2.Symbol) (info : ACL2.TheoremInfo) 
 
 private def printTheoryEvents (events : List ACL2.Event) : IO Unit := do
   let theoryExprs : List ACL2.TheoryExpr :=
-    (flattenEventList events).filterMap fun
+    ACL2.Event.flattenList events |>.filterMap fun
       | .inTheory expr => some (ACL2.TheoryExpr.ofSExpr expr)
       | _ => none
   if !List.isEmpty theoryExprs then
@@ -84,7 +74,7 @@ def main (args : List String) : IO Unit := do
           IO.println "import ACL2Lean.Tactics"
           IO.println "open ACL2 ACL2.Logic ACL2.Tactics"
           IO.println ""
-          for ev in flattenEventList evs do
+          for ev in ACL2.Event.flattenList evs do
             match ev with
             | .defun name formals _ _ body =>
                 IO.println (ACL2.Translator.translateDefun name formals body)
@@ -102,7 +92,7 @@ def main (args : List String) : IO Unit := do
       | .error e => IO.eprintln s!"Load error: {e}"
       | .ok evs => do
           printTheoryEvents evs
-          for ev in flattenEventList evs do
+          for ev in ACL2.Event.flattenList evs do
             match ev with
             | .defthm name info =>
                 printTheoremMetadata name info
@@ -112,7 +102,7 @@ def main (args : List String) : IO Unit := do
       match events with
       | .error e => IO.eprintln s!"Load error: {e}"
       | .ok evs =>
-          let flat := flattenEventList evs
+          let flat := ACL2.Event.flattenList evs
           match flat.find? (fun
             | .defthm name _ => theoremMatches theoremName name
             | _ => false) with
