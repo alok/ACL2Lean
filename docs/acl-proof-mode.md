@@ -10,6 +10,8 @@ The immediate design split is:
 - `lean-tui` should own proof navigation, graph structure, and cursor-following.
 - the infoview panel should own ACL-specific metadata that Lean's default UI does not expose well: rune selection, checkpoints, hint provenance, and induction choices.
 
+The importer now preserves structured `defthm` metadata (`:hints`, `:rule-classes`) plus top-level `in-theory` events, so the next UI step can consume real imported proof metadata instead of a hand-written snapshot.
+
 ## Current setup
 
 - `lean-toolchain` was upgraded to `leanprover/lean4:v4.29.0-rc6` to match the fetched UI dependencies.

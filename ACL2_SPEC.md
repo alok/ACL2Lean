@@ -15,8 +15,9 @@
   - `Symbol` with package/name split (`ACL2::CAR` → `{ package := "ACL2", name := "CAR" }`).
   - `Atom` variants: symbol, keyword, string, boolean, `Number` (integer, rational, decimal placeholder).
   - `SExpr` for proper lists + atoms; helper views `ofList`, `toList?`, `headSymbol?`.
-  - `Event` discriminates core ACL2 events used in the sample set (`inPackage`, `includeBook`, `defun`, `defthm`, `defmacro`, `skip`).
-  - `World` stores installed definitions; semantics currently record bodies only.
+  - `TheoremInfo`, `GoalHint`, `RuleClass`, and `TheoryExpr` preserve proof-relevant `defthm` options such as `:hints`, `:rule-classes`, and `:in-theory` in structured form.
+  - `Event` discriminates core ACL2 events used in the sample set (`inPackage`, `includeBook`, `defun`, `defthm`, `defmacro`, `inTheory`, `skip`).
+  - `World` stores installed definitions, theorem metadata, and replay-order theory events.
 
 ## Parsing Pipeline
 - `ACL2Lean.Parser` implements a partial s-expression reader over ASCII streams.
@@ -26,10 +27,11 @@
 
 ## Tooling Hooks
 - `ACL2Lean.Import.loadEventsFromFile`: `IO` wrapper returning `Except String (List Event)`.
+- `lake exe acl2lean metadata <file> [theorem]`: prints extracted theorem metadata and top-level `in-theory` events for quick replay-oriented inspection.
 - `ACL2Lean.Workbench.reportSamples`: `#eval` helper that prints event histograms for sanity checking future corpus updates.
 - Extend `sampleFiles` to track regressions; `lake build` exercises the pipeline automatically.
 
 ## Next Steps
-1. Extend `Event` with explicit cases for `mutual-recursion`, `in-theory`, `declare`, hints payloads.
-2. Replace `skip` bodies by capturing raw `SExpr` lists so we can analyze guard/measure metadata.
-3. Define a proof-oriented semantics (`World.step`) once function bodies are elaborated into Lean equivalents.
+1. Parse richer hint subforms such as `:instructions`, `:cases`, and more nested `:in-theory` combinators so replay can target larger books.
+2. Replace more `skip` bodies by capturing explicit event forms for guard/measure metadata and theorem-local control structure.
+3. Feed extracted theorem metadata and theory events into proof replay and the ACL proof-mode widget instead of keeping them CLI/translator-only.
