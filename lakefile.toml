@@ -2,6 +2,16 @@ name = "ACL2Lean"
 version = "0.1.0"
 defaultTargets = ["acl2lean"]
 
+[[require]]
+name = "LeanPrism"
+git = "https://codeberg.org/wvhulle/lean-prism.git"
+rev = "main"
+
+[[require]]
+name = "proofwidgets"
+git = "https://github.com/leanprover-community/ProofWidgets4"
+rev = "main"
+
 [[lean_lib]]
 name = "ACL2Lean"
 

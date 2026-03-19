@@ -13,9 +13,23 @@ This project provides a bridge between ACL2 and Lean 4, allowing for parsing, ev
 ## Getting Started
 
 1.  **Build**: `just build`
-2.  **Report Coverage**: `just report`
-3.  **Verify Evaluator**: `just verify` (Requires ACL2)
-4.  **Translate Book**: `just translate acl2_samples/2009-log2.lisp`
+2.  **Launch TUI Proof View**: `just tui`
+3.  **Open Proof Mode Demo**: inspect `ACL2Lean/ProofModeDemo.lean` in your editor to see the first ACL-oriented infoview panel and a matching proof that `lean-tui` can follow.
+4.  **Report Coverage**: `just report`
+5.  **Verify Evaluator**: `just verify` (Requires ACL2)
+6.  **Translate Book**: `just translate acl2_samples/2009-log2.lisp`
+
+## ACL Proof Mode UI
+
+The repo now carries two early UI integration paths for co-designing an ACL-flavored proof workflow:
+
+- **`lean-tui` + `LeanPrism`**: a terminal infoview that follows the active proof/function from your editor.
+- **ProofWidgets infoview panel**: `ACL2Lean/ProofMode.lean` and `ACL2Lean/ProofModeDemo.lean` provide the first ACL-specific panel layout for checkpoints, rune/fact lists, and next moves.
+
+The intended split is:
+
+- `lean-tui` owns proof navigation and graph structure.
+- The infoview panel owns ACL-specific metadata that Lean’s default view does not surface well, such as runes, checkpoints, and hint provenance.
 
 ## Automated Proving with `grind`
 
