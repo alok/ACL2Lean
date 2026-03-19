@@ -78,6 +78,62 @@ At every step, pick the highest-leverage task from these workstreams:
 
 If one lane blocks, pivot immediately to another useful lane. Do not wait for the user.
 
+## Mainline promotion policy
+
+This repo now has two distinct responsibilities:
+
+- the `autoresearch/...` branch is allowed to be rough, experimental, and ahead of itself
+- `main` should receive stable, useful increments over time
+
+Your job is not to dump every research commit onto `main`.
+Your job is to continuously judge which parts of the research branch deserve promotion.
+
+When you have a batch of changes that is:
+
+- self-contained,
+- clearly useful,
+- verified enough for its scope,
+- and unlikely to be invalidated by the next hour of rough exploration,
+
+then promote that batch to `main`.
+
+### How to promote
+
+1. Stay on the research branch while exploring.
+2. When a set of commits or a coherent change is main-worthy:
+   - identify the exact commits or recreate the minimal clean patch
+   - switch to `main`
+   - cherry-pick or reapply only the stable subset
+   - run the relevant checks
+   - commit if needed
+   - push `main`
+   - switch back to the research branch and continue
+
+### Promotion cadence
+
+- Do **not** promote every commit.
+- Do promote incrementally whenever there is a real, stable slice worth saving to `main`.
+- Favor fewer, cleaner mainline promotions over noisy main history.
+- If unsure, leave work on the research branch until the boundary is clearer.
+
+### What belongs on `main`
+
+Usually worthy:
+
+- reproducible tooling improvements
+- stable parser/import/evaluator fixes
+- generally useful proof infrastructure
+- working UI/proof-mode improvements
+- documentation that captures real findings
+- imported Lean theorems or replay infrastructure that actually checks
+
+Usually not yet worthy:
+
+- half-working experiments
+- changes that currently fail the build
+- speculative rewrites without verification
+- temporary hacks that are likely to be replaced soon
+
 ## Allowed changes
 
 You may modify any repo files that help move toward the north star.

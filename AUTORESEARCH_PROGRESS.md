@@ -20,3 +20,9 @@ Initial backlog:
 2. replay one small theorem from `acl2_samples/simple.lisp` or another tiny sample as a Lean theorem
 3. build the infrastructure that most increases the chance of scaling replay
 4. connect imported/replayed proof state to the ACL proof-mode UI
+
+User direction update:
+
+- the loop should also determine which stable slices belong on `main`
+- do not mirror every rough research commit onto `main`
+- promote stable, verified batches incrementally while keeping rough work on the research branch
