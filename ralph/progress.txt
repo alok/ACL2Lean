@@ -20,3 +20,7 @@ Immediate next steps for the loop:
 1. identify what proof artifact or replayable trace ACL2 can expose for existing theorems
 2. get one small theorem from `acl2_samples/simple.lisp` or another small book replayed as a Lean theorem
 3. hook imported theorem/proof state into the ACL proof-mode UI
+
+User correction:
+- do not scope the loop so tightly that it finishes early and starves the rest of the 10-hour budget
+- keep proof replay as the north star, but operate autonomously across the whole backlog that enables it

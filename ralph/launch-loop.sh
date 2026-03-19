@@ -9,14 +9,14 @@ RUNNER="/Users/alokbeniwal/.codex/skills/ralph-loop/scripts/ralph-loop.py"
 
 cd "$ROOT"
 
-nohup /opt/homebrew/bin/gtimeout 10h \
+nohup env PYTHONUNBUFFERED=1 /opt/homebrew/bin/gtimeout 10h \
   uv run python "$RUNNER" \
     --runner codex \
     --iterations 9999 \
     --sleep 15 \
     --prd ralph/PRD.md \
     --progress ralph/progress.txt \
-    --extra "Focus on importing existing ACL2 proofs and replaying them in Lean so Lean's kernel is the checker. Use the ACL proof-mode UI as a feedback surface, but prioritize actual imported theorem replay over UI polish. Push useful commits to the current branch as you go. Do not wait for the user." \
+    --extra "Operate autonomously for the full 10-hour budget. Keep importing and replaying ACL2 proofs in Lean as the north star, but do not scope yourself so tightly that you finish early. If one line of attack blocks, immediately pivot to the next highest-leverage task across proof extraction, replay infrastructure, translator/import work, proving support, evaluator semantics, UI, or source research. Push useful commits to the current branch as you go. Do not wait for the user." \
   >"$LOG" 2>&1 &
 
 echo $! >"$PIDFILE"

@@ -22,23 +22,57 @@ The repo already has:
 - a theorem-aware `#acl_panel` command
 - notes on `Sym` / `grind` extension points in `docs/acl-proof-mode.md`
 
-## Primary objective
+## Operating mode
 
-Figure out how to import an existing ACL2 proof and replay it in Lean so Lean is the checker.
+Do not scope yourself so tightly that you finish early and idle.
 
-This likely means some combination of:
+Treat this as a 10-hour autonomous engineering/research loop with one north star and multiple active workstreams.
 
-1. discovering what ACL2 proof artifact or proof trace can be extracted from the ACL2 binary/source/books,
-2. translating that artifact into a Lean proof script or a replay program,
-3. using Lean tactics / `Sym` / `grind` / generated lemmas to discharge the steps,
-4. producing final Lean theorems in repo code.
+The north star is still:
+
+- import existing ACL2 proofs and replay them in Lean so Lean's kernel checks the result and the output is a native Lean theorem.
+
+But you should self-manage across the whole dependency graph required to get there. If one lane blocks, immediately pivot to the next highest-leverage lane instead of stopping.
+
+## Autonomous workstreams
+
+At any point, pick the best next task from these tracks:
+
+1. **Proof artifact extraction**
+   - discover what ACL2 proof output, hints, proof trees, or source-level artifacts can be harvested and replayed
+   - read ACL2 source/books/binary behavior as needed
+2. **Replay infrastructure**
+   - design and implement an import format or replay engine that turns ACL2 proof information into Lean proof terms or proof scripts
+   - prefer checked-in Lean theorems as the end result
+3. **Translator and import pipeline**
+   - improve translation of `defthm`, hints, recursive definitions, and theorem dependencies
+   - add CLI or file-generation workflows that make replay reproducible
+4. **Lean proving support**
+   - extend ACL-oriented tactics, `Sym`/`grind` integration, and helper lemmas
+   - use Lean source directly to understand the right APIs/typeclasses
+5. **Evaluator and semantics**
+   - fix semantic mismatches against ACL2 that block proof replay or theorem checking
+   - keep the ACL2 regression harness green
+6. **UI / proof mode**
+   - continue evolving `lean-tui` + infoview into an ACL proof mode that helps inspect imported/replayed proofs
+7. **Research and documentation**
+   - write down what ACL2 exposes, what replay formats seem viable, and what still blocks full replay
+   - keep the progress log useful for a human returning later
+
+## Execution policy
+
+- Always work on the most leverage-positive task available, not necessarily the one originally started.
+- If you hit a blocker after a reasonable attempt, pivot instead of stopping.
+- Keep a rolling backlog in the progress log.
+- Make commits and push checkpoints when you have something real.
+- Never conclude early just because one narrow objective is blocked or "done enough".
 
 ## Priority order
 
-1. End-to-end proof replay on a small theorem from a real ACL2 sample.
-2. Make the import/replay path reproducible from CLI or checked-in Lean files.
-3. Surface replay state in the ACL proof-mode UI.
-4. Investigate `Sym` / `grind` integration for ACL normalization and proof step replay.
+1. Demonstrate real Lean-kernel-checked replay/import on a small ACL2 theorem.
+2. Make the replay/import path reproducible from CLI or checked-in Lean files.
+3. Strengthen the supporting stack that most increases the chance of larger theorem replay next.
+4. Improve the ACL proof-mode UI so it reflects real replay state, not just static scaffolding.
 
 ## Constraints
 
