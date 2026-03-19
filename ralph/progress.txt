@@ -1,0 +1,22 @@
+2026-03-19
+
+Bootstrapped the ACL proof-mode UI before deeper automation work.
+
+Current known-good state:
+- branch `codex/basic-usable-state` exists and is pushed
+- `lean-tui` is installed and wired through `LeanPrism`
+- `ACL2Lean/ProofMode.lean` provides the first ACL-specific infoview panel
+- `#acl_panel` renders the panel for a real theorem by reading the declaration type from Lean
+- `ACL2Lean/ProofModeDemo.lean` provides a theorem that both `lean-tui` and the infoview panel can follow
+- `docs/acl-proof-mode.md` records the relevant `Sym` / `grind` integration seams from Lean 4.29 sources
+- `lake build` passes
+- `uv run python Verify.py` still matches ACL2 on the existing evaluator regression checks
+
+Important user clarification:
+- the real goal is not just ACL2-flavored proving in Lean
+- the real goal is to import an existing ACL2 proof and replay it in Lean so Lean's kernel checks the result and we end with native Lean theorems
+
+Immediate next steps for the loop:
+1. identify what proof artifact or replayable trace ACL2 can expose for existing theorems
+2. get one small theorem from `acl2_samples/simple.lisp` or another small book replayed as a Lean theorem
+3. hook imported theorem/proof state into the ACL proof-mode UI
