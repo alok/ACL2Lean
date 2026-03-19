@@ -53,3 +53,37 @@ Next best ideas:
 1. preserve original ACL2 symbol spellings alongside normalized lookup names so proof extraction can display source-faithful theorem/rune names without reintroducing lookup bugs
 2. import more proof-relevant theorem metadata from `defthm` hints and `in-theory` events instead of only storing theorem bodies
 3. replay a slightly richer imported theorem with locals/hints and connect that metadata to the proof-mode UI
+
+## 2026-03-19 Iteration 2
+
+Completed this iteration:
+
+- replaced raw `defthm` hint blobs with structured theorem metadata (`TheoremInfo`, `GoalHint`, `RuleClass`, `TheoryExpr`) so imported ACL2 theorems now preserve `:hints`, `:rule-classes`, and `:in-theory` data in a replay-friendly form
+- changed `World` to retain theorem metadata plus replay-order top-level theory events instead of only theorem bodies
+- taught the translator to emit ACL2 metadata comments and top-level `in-theory` comments in generated Lean output, preserving proof-relevant context next to imported theorems
+- added `acl2lean metadata <file> [theorem]` for inspecting extracted theorem metadata directly from sample books
+- added parser regression guards for theorem options and `in-theory` parsing, and updated the ACL2 spec / proof-mode notes to reflect the new import surface
+
+Verification:
+
+- research branch commit `fc0f984`: `lake build`
+- research branch commit `fc0f984`: `uv run python Verify.py`
+- research branch commit `fc0f984`: `./.lake/build/bin/acl2lean metadata acl2_samples/2009-log2.lisp clog2-lemma-a`
+- research branch commit `fc0f984`: `./.lake/build/bin/acl2lean metadata acl2_samples/2009-log2.lisp`
+- research branch commit `fc0f984`: `./.lake/build/bin/acl2lean translate acl2_samples/2009-log2.lisp | rg -n "ACL2 metadata|ACL2 in-theory|rule-classes"`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- the new metadata path works on top-level theorem-rich books like `acl2_samples/2009-log2.lisp`
+- `acl2_samples/apply-model-apply-prim.lisp` still does not surface deeper `encapsulate`-scoped theorem metadata such as `badge-prim-type`, so mainline promotion should wait for better nested-event coverage
+
+Next best ideas:
+
+1. make theorem metadata inspection and translation recurse cleanly through more `encapsulate` / `local` / `make-event` shapes in books like `apply-model-apply-prim.lisp`
+2. parse richer hint subforms such as `:instructions`, `:cases`, and nested theory combinators so replay can use more than just `:use` / `:in-theory`
+3. connect extracted `GoalHint` and `TheoryExpr` data to `ACL2Lean.ProofMode` so the widget shows imported rune/hint provenance instead of only demo data
