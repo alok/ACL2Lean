@@ -135,8 +135,10 @@ if __name__ == "__main__":
         "(equal 1 1)",
         "(equal 1 2)",
         "(if t 1 2)",
+        "(IF T 1 2)",
         "(if nil 1 2)",
         "(let ((x 5)) (+ x 10))",
+        "(LET ((X 5)) (BINARY-+ X 10))",
         "(zp 0)",
         "(zp 1)",
         "(evenp 4)",
@@ -158,6 +160,8 @@ if __name__ == "__main__":
     
     print("\n--- Contextual Tests ---")
     verify_in("acl2_samples/2009-log2.lisp", "(flog2 10)")
+    verify_in("acl2_samples/2009-log2.lisp", "(FLOG2 10)")
     verify_in("acl2_samples/2009-log2.lisp", "(flog2 32)")
     verify_in("acl2_samples/2009-log2.lisp", "(clog2 10)")
+    verify_in("acl2_samples/2009-log2.lisp", "(CLOG2 10)")
     verify_in("acl2_samples/2009-log2.lisp", "(clog2 32)")
