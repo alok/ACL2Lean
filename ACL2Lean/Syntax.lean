@@ -106,6 +106,158 @@ instance : ToString SExpr where
 instance : Repr SExpr where
   reprPrec s _ := s.toString
 
+structure TheoremOption where
+  key : Keyword
+  value : SExpr
+  deriving DecidableEq, Inhabited, Repr
+
+inductive TheoryExpr
+  | enable (items : List SExpr)
+  | disable (items : List SExpr)
+  | e_d (enabled : List SExpr) (disabled : List SExpr)
+  | raw (expr : SExpr)
+  deriving DecidableEq, Inhabited, Repr
+
+structure GoalHint where
+  goal : String
+  options : List TheoremOption := []
+  deriving DecidableEq, Inhabited, Repr
+
+structure RuleClass where
+  name : String
+  options : List TheoremOption := []
+  deriving DecidableEq, Inhabited, Repr
+
+structure TheoremInfo where
+  body : SExpr
+  options : List TheoremOption := []
+  deriving DecidableEq, Inhabited, Repr
+
+namespace TheoremOption
+
+@[inline] private def normalizeKey (key : Keyword) : Keyword :=
+  key.map Char.toLower
+
+def fromSExprs : List SExpr → List TheoremOption
+  | .atom (.keyword key) :: value :: rest =>
+      { key := normalizeKey key, value } :: fromSExprs rest
+  | _ :: rest => fromSExprs rest
+  | [] => []
+
+def findValue? (options : List TheoremOption) (key : Keyword) : Option SExpr :=
+  let key := normalizeKey key
+  (options.find? fun option => option.key = key).map (·.value)
+
+def render (option : TheoremOption) : String :=
+  s!":{option.key} {option.value}"
+
+end TheoremOption
+
+namespace TheoryExpr
+
+private def unpackItems (expr : SExpr) : List SExpr :=
+  match expr.toList? with
+  | some items => items
+  | none => [expr]
+
+def ofSExpr (expr : SExpr) : TheoryExpr :=
+  match expr.toList? with
+  | some (SExpr.atom (.symbol head) :: rest) =>
+      if head.isNamed "enable" then
+        .enable rest
+      else if head.isNamed "disable" then
+        .disable rest
+      else if head.isNamed "e/d" then
+        match rest with
+        | [enabled, disabled] => .e_d (unpackItems enabled) (unpackItems disabled)
+        | _ => .raw expr
+      else
+        .raw expr
+  | _ => .raw expr
+
+private def renderItems (items : List SExpr) : String :=
+  String.intercalate ", " (items.map toString)
+
+def summary : TheoryExpr → String
+  | .enable items => s!"enable [{renderItems items}]"
+  | .disable items => s!"disable [{renderItems items}]"
+  | .e_d enabled disabled =>
+      s!"e/d enable [{renderItems enabled}] disable [{renderItems disabled}]"
+  | .raw expr => toString expr
+
+end TheoryExpr
+
+namespace GoalHint
+
+private def renderGoal (expr : SExpr) : String :=
+  match expr with
+  | .atom (.string s) => s
+  | .atom (.symbol s) => toString (SExpr.atom (.symbol s))
+  | _ => toString expr
+
+def ofSExpr? (expr : SExpr) : Option GoalHint := do
+  let items ← expr.toList?
+  match items with
+  | goalExpr :: rest =>
+      some { goal := renderGoal goalExpr, options := TheoremOption.fromSExprs rest }
+  | [] => none
+
+def findOption? (hint : GoalHint) (key : Keyword) : Option SExpr :=
+  TheoremOption.findValue? hint.options key
+
+def inTheory? (hint : GoalHint) : Option TheoryExpr :=
+  hint.findOption? "in-theory" |>.map TheoryExpr.ofSExpr
+
+end GoalHint
+
+namespace RuleClass
+
+def ofSExpr? : SExpr → Option RuleClass
+  | .atom (.keyword key) => some { name := key.map Char.toLower }
+  | expr => do
+      let items ← expr.toList?
+      match items with
+      | .atom (.keyword key) :: rest =>
+          some { name := key.map Char.toLower, options := TheoremOption.fromSExprs rest }
+      | _ => none
+
+def summary (ruleClass : RuleClass) : String :=
+  let extraKeys := ruleClass.options.map (fun option => s!":{option.key}")
+  if extraKeys.isEmpty then
+    ruleClass.name
+  else
+    s!"{ruleClass.name} ({String.intercalate ", " extraKeys})"
+
+end RuleClass
+
+namespace TheoremInfo
+
+def findOption? (info : TheoremInfo) (key : Keyword) : Option SExpr :=
+  TheoremOption.findValue? info.options key
+
+def hintGoals (info : TheoremInfo) : List GoalHint :=
+  match info.findOption? "hints" with
+  | some hints =>
+      match hints.toList? with
+      | some goals => goals.filterMap GoalHint.ofSExpr?
+      | none => []
+  | none => []
+
+def ruleClasses (info : TheoremInfo) : List RuleClass :=
+  match info.findOption? "rule-classes" with
+  | some .nil => []
+  | some (.atom (.keyword key)) => [{ name := key.map Char.toLower }]
+  | some expr =>
+      match expr.toList? with
+      | some items => items.filterMap RuleClass.ofSExpr?
+      | none => []
+  | none => []
+
+def extraOptions (info : TheoremInfo) : List TheoremOption :=
+  info.options.filter (fun option => option.key ≠ "hints" && option.key ≠ "rule-classes")
+
+end TheoremInfo
+
 -- DSL-like notation for S-expressions in Lean code
 syntax "sexpr!{" acl2_sexpr "}" : term
 
@@ -120,11 +272,11 @@ inductive Event
   | inPackage (name : String)
   | includeBook (path : String) (dirs : List String := [])
   | defun (name : Symbol) (formals : List Symbol) (doc : Option String) (decls : List SExpr) (body : SExpr)
-  | defthm (name : Symbol) (body : SExpr) (hints : Option SExpr := none)
+  | defthm (name : Symbol) (info : TheoremInfo)
   | defmacro (name : Symbol) (formals : List Symbol) (doc : Option String) (decls : List SExpr) (body : SExpr)
   | mutualRecursion (events : List Event)
   | local (event : Event)
-  | inTheory (body : SExpr)
+  | inTheory (expr : SExpr)
   | encapsulate (events : List Event)
   | makeEvent (body : SExpr)
   | defrec (name : Symbol) (fields : List Symbol)
@@ -193,12 +345,8 @@ partial def classify (sexpr : SExpr) : Event :=
           | _ => .skip sexpr
       | "defthm" =>
           match rest.toList? with
-          | some (SExpr.atom (.symbol name) :: body :: hints) =>
-              let hintExpr :=
-                match hints with
-                | [] => none
-                | more => some (SExpr.ofList more)
-              .defthm name body hintExpr
+          | some (SExpr.atom (.symbol name) :: body :: options) =>
+              .defthm name { body, options := TheoremOption.fromSExprs options }
           | _ => .skip sexpr
       | "defmacro" =>
           match rest.toList? with
@@ -218,7 +366,10 @@ partial def classify (sexpr : SExpr) : Event :=
           match rest.toList? with
           | some [inner] => .local (classify inner)
           | _ => .skip sexpr
-      | "in-theory" => .inTheory rest
+      | "in-theory" =>
+          match rest.toList? with
+          | some [expr] => .inTheory expr
+          | _ => .skip sexpr
       | "mutual-recursion" =>
           match rest.toList? with
           | some lst => .mutualRecursion (lst.map classify)
@@ -263,7 +414,8 @@ structure World where
   package : PackageState := {}
   defs : Std.HashMap Symbol (List Symbol × SExpr) := {}
   macros : Std.HashMap Symbol (List Symbol × SExpr) := {}
-  theorems : Std.HashMap Symbol SExpr := {}
+  theorems : Std.HashMap Symbol TheoremInfo := {}
+  theories : List TheoryExpr := []
   consts : Std.HashMap Symbol SExpr := {}
   recs : Std.HashMap Symbol (List Symbol) := {}
   stobjs : Std.HashMap Symbol (List SExpr) := {}
@@ -281,10 +433,10 @@ partial def step (w : World) (event : Event) : World :=
   | .inPackage name => { w with package := { w.package with current := name } }
   | .includeBook _ _ => w
   | .defun name formals _ _ body => { w with defs := w.defs.insert name (formals, body) }
-  | .defthm name body _ => { w with theorems := w.theorems.insert name body }
+  | .defthm name info => { w with theorems := w.theorems.insert name info }
   | .defmacro name formals _ _ body => { w with macros := w.macros.insert name (formals, body) }
   | .local e => step w e
-  | .inTheory _ => w
+  | .inTheory expr => { w with theories := w.theories ++ [TheoryExpr.ofSExpr expr] }
   | .mutualRecursion evs => evs.foldl step w
   | .encapsulate evs => evs.foldl step w
   | .makeEvent _ => w

@@ -116,12 +116,49 @@ def translateDefun (name : Symbol) (formals : List Symbol) (body : SExpr) : Stri
   let fmls := String.intercalate " " (formals.map fun s => s!"({translateSymbol s} : SExpr)")
   s!"partial def {nameStr} {fmls} : SExpr :=\n  {translateExpr body}"
 
-def translateDefthm (name : Symbol) (body : SExpr) (hints : Option SExpr) : String :=
+private def renderHint (hint : GoalHint) : String :=
+  let basics :=
+    [ hint.findOption? "use" |>.map (fun useExpr => s!"use {useExpr}")
+    , hint.inTheory? |>.map (fun theoryExpr => s!"in-theory {theoryExpr.summary}")
+    , hint.findOption? "induct" |>.map (fun inductExpr => s!"induct {inductExpr}")
+    , hint.findOption? "expand" |>.map (fun expandExpr => s!"expand {expandExpr}")
+    , hint.findOption? "do-not-induct" |>.map (fun dniExpr => s!"do-not-induct {dniExpr}")
+    ].filterMap id
+  let handled := ["use", "in-theory", "induct", "expand", "do-not-induct"]
+  let extras :=
+    hint.options
+      |>.filter (fun option => !handled.contains option.key)
+      |>.map TheoremOption.render
+  let parts := basics ++ extras
+  if parts.isEmpty then
+    s!"hint {hint.goal}"
+  else
+    s!"hint {hint.goal}: {String.intercalate "; " parts}"
+
+private def renderMetadataComment (info : TheoremInfo) : String :=
+  let ruleClassLines :=
+    match info.ruleClasses.map RuleClass.summary with
+    | [] => []
+    | ruleClasses => [s!"rule-classes: {String.intercalate ", " ruleClasses}"]
+  let hintLines := info.hintGoals.map renderHint
+  let extraKeys := info.extraOptions.map (fun option => s!":{option.key}")
+  let extraLines :=
+    match extraKeys with
+    | [] => []
+    | keys => [s!"other-options: {String.intercalate ", " keys}"]
+  let lines := ruleClassLines ++ hintLines ++ extraLines
+  if lines.isEmpty then
+    ""
+  else
+    let body := String.intercalate "\n" (lines.map fun line => s!"  {line}")
+    s!"/- ACL2 metadata:\n{body}\n-/\n"
+
+def translateDefthm (name : Symbol) (info : TheoremInfo) : String :=
   let nameStr := sanitizeName (translateSymbol name)
-  let vars := (collectVars body []).reverse
+  let vars := (collectVars info.body []).reverse
   let fmls := String.intercalate " " (vars.map fun v => s!"({v} : SExpr)")
-  let hintStr := match hints with | some h => s!" /- hints: {repr h} -/" | none => ""
-  s!"theorem {nameStr} {fmls} : Logic.toBool ({translateExpr body}) = true :={hintStr}\n  sorry"
+  let metaComment := renderMetadataComment info
+  s!"{metaComment}theorem {nameStr} {fmls} : Logic.toBool ({translateExpr info.body}) = true :=\n  sorry"
 
 private def uppercaseIfExpr : SExpr :=
   .cons
@@ -135,7 +172,7 @@ private def uppercaseIfExpr : SExpr :=
 
 #guard translateSymbol { name := "BINARY-+" } = "Logic.plus"
 #guard (translateExpr uppercaseIfExpr).startsWith "(Logic.if_"
-#guard (translateDefthm { name := "PLUS-COMM" } uppercaseIfExpr none).startsWith "theorem plus_comm"
+#guard (translateDefthm { name := "PLUS-COMM" } { body := uppercaseIfExpr }).contains "theorem plus_comm"
 
 end Translator
 

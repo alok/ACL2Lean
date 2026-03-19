@@ -211,9 +211,39 @@ private def parsedUppercaseKeywordLooksRight : Bool :=
   | .ok (SExpr.atom (.keyword "system")) => true
   | _ => false
 
+private def parsedDefthmMetadataLooksRight : Bool :=
+  match parseOne "(DEFTHM FOO (EQUAL X X) :RULE-CLASSES (:LINEAR :REWRITE) :HINTS ((\"Goal\" :USE BAR :IN-THEORY (DISABLE BAZ))))" with
+  | .ok sx =>
+      match Event.classify sx with
+      | .defthm { name := "foo", .. } info =>
+          info.ruleClasses.map (·.name) = ["linear", "rewrite"] &&
+            match info.hintGoals with
+            | [hint] =>
+                hint.goal = "Goal" &&
+                hint.findOption? "use" = some (.atom (.symbol { name := "bar" })) &&
+                hint.inTheory? = some (.disable [.atom (.symbol { name := "baz" })])
+            | _ => false
+      | _ => false
+  | .error _ => false
+
+private def parsedTopLevelInTheoryLooksRight : Bool :=
+  match parseOne "(IN-THEORY (E/D (COMMUTATIVITY-OF-+)
+                                 (ASSOCIATIVITY-OF-+)))" with
+  | .ok sx =>
+      match Event.classify sx with
+      | .inTheory expr =>
+          TheoryExpr.ofSExpr expr =
+            .e_d
+              [.atom (.symbol { name := "commutativity-of-+" })]
+              [.atom (.symbol { name := "associativity-of-+" })]
+      | _ => false
+  | .error _ => false
+
 #guard parsedQualifiedBuiltinLooksRight
 #guard parsedUppercaseKeywordLooksRight
 #guard parsedUppercaseDefunLooksRight
+#guard parsedDefthmMetadataLooksRight
+#guard parsedTopLevelInTheoryLooksRight
 
 end Parse
 
