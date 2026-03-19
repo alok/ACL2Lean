@@ -87,3 +87,39 @@ Next best ideas:
 1. make theorem metadata inspection and translation recurse cleanly through more `encapsulate` / `local` / `make-event` shapes in books like `apply-model-apply-prim.lisp`
 2. parse richer hint subforms such as `:instructions`, `:cases`, and nested theory combinators so replay can use more than just `:use` / `:in-theory`
 3. connect extracted `GoalHint` and `TheoryExpr` data to `ACL2Lean.ProofMode` so the widget shows imported rune/hint provenance instead of only demo data
+
+## 2026-03-19 Iteration 3
+
+Completed this iteration:
+
+- added best-effort static `make-event` recovery by dequasiquoting generated event skeletons and exposing them through shared `Event.generatedEvents` / `Event.flattenList` helpers
+- taught `Event.classify` to unwrap `with-output` wrappers so nested events inside generated books survive classification instead of collapsing to `skip`
+- updated `World.step` and the `acl2lean metadata` / `acl2lean translate` CLI paths to consume the shared flattening logic, so recovered generated events participate in replay-oriented inspection
+- added build-time regression guards for wrapped `defthm` events and quasiquoted `make-event` encapsulates, and updated `ACL2_SPEC.md` to document the expanded import surface
+
+Verification:
+
+- research branch commit `84ceff5`: `lake build`
+- research branch commit `84ceff5`: `uv run python Verify.py`
+- research branch commit `84ceff5`: `./.lake/build/bin/acl2lean metadata acl2_samples/apply-model-apply-prim.lisp | sed -n '1,80p'`
+- research branch commit `84ceff5`: `./.lake/build/bin/acl2lean metadata acl2_samples/apply-model-apply-prim.lisp 'apply$-prim-meta-fn-correct'`
+- research branch commit `84ceff5`: `./.lake/build/bin/acl2lean translate acl2_samples/apply-model-apply-prim.lisp | sed -n '48,80p'`
+- promoted the stable metadata batch to `main` as `0a2fa23` + `5a5caf6`
+- on `main`, a stale read-only `.lake` artifact broke the first `lake build`; after `lake clean`, both `lake build` and `uv run python Verify.py` passed
+- on `main`, `./.lake/build/bin/acl2lean metadata acl2_samples/apply-model-apply-prim.lisp 'apply$-prim-meta-fn-correct'` passed and showed the recovered meta theorem metadata
+
+Outcome:
+
+- keep
+- promoted to `main`
+
+Notes:
+
+- `acl2_samples/apply-model-apply-prim.lisp` now surfaces the deeper generated theorems `n-car-cadr-caddr-etc-opener`, `apply$-prim-meta-fn-correct`, and `apply$-primp-implies-symbolp`, which unblocks promotion of the earlier structured-metadata work
+- theorem lookup from the shell needs quoting around `$`-bearing ACL2 names, but the CLI lookup path itself works correctly once the shell does not mangle the theorem name
+
+Next best ideas:
+
+1. parse `:instructions`, `:cases`, and richer nested theory expressions into structured metadata instead of only preserving them as raw extra options
+2. extend static recovery beyond direct quasiquote skeletons to dynamic-but-still-inspectable `make-event` result shapes such as `value` / `er-progn` branches
+3. feed the recovered theorem metadata into `ACL2Lean.ProofMode` so imported books drive the infoview panel instead of the current demo snapshot
