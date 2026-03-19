@@ -5,6 +5,7 @@ import ProofWidgets.Component.HtmlDisplay
 open Lean
 open Lean.Json
 open ProofWidgets
+open Lean Elab Command Term Meta
 
 namespace ACL2
 namespace ProofMode
@@ -180,6 +181,23 @@ def demoSnapshot : Snapshot :=
 
 def demo : Html :=
   render demoSnapshot
+
+def panelForGoal (theoremName goal : String) : Html :=
+  render { demoSnapshot with theoremName, goal }
+
+syntax (name := aclPanelCmd) "#acl_panel " ident : command
+
+@[command_elab aclPanelCmd]
+def elabAclPanel : CommandElab := fun stx => do
+  let `( #acl_panel $id:ident ) := stx | throwUnsupportedSyntax
+  let (nameStr, goalStr) ← liftTermElabM do
+    let declName ← realizeGlobalConstNoOverloadWithInfo id
+    let info ← getConstInfo declName
+    let typeFmt ← Meta.ppExpr info.type
+    pure (declName.toString, typeFmt.pretty)
+  let nameLit := Syntax.mkStrLit nameStr
+  let goalLit := Syntax.mkStrLit s!"Type:\n{goalStr}"
+  elabCommand (← `(#html ACL2.ProofMode.panelForGoal $nameLit $goalLit))
 
 end ProofMode
 end ACL2

@@ -37,7 +37,7 @@ theorem demoLenAppendAcl (x y : SExpr) :
     toBool (equal (demoLenS (demoAppend x y)) (plus (demoLenS x) (demoLenS y))) = true := by
   simp [demoLenS, Logic.toBool, Logic.equal, Logic.plus, Logic.toInt, demoLenAppend, Int.natCast_add]
 
-#html ACL2.ProofMode.demo
+#acl_panel demoLenAppendAcl
 
 end ProofModeDemo
 end ACL2
