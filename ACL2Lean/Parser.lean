@@ -6,6 +6,12 @@ namespace Parse
 
 abbrev Stream := List Char
 
+private def normalizeSymbolName (name : String) : String :=
+  name.map Char.toLower
+
+private def normalizePackageName (name : String) : String :=
+  name.map Char.toUpper
+
 private def dropWhile (p : Char → Bool) : Stream → Stream
   | [] => []
   | c :: cs => if p c then dropWhile p cs else c :: cs
@@ -129,10 +135,11 @@ mutual
         | .ok (_, rest2) => parseSExpr rest2
     | ':' :: _ =>
         let (tok, rest) := readAtom cs
-        let kw := (tok.drop 1).toString
+        let kw := ((tok.drop 1).toString).map Char.toLower
         .ok (SExpr.atom (.keyword kw), rest)
     | _ =>
-        let (tok, rest) := readAtom cs
+        let (rawTok, rest) := readAtom cs
+        let tok := normalizeSymbolName rawTok
         let atom : Atom :=
           if tok = "t" then .bool true
           else if tok = "nil" then .bool false
@@ -152,9 +159,12 @@ mutual
                 -- very crude decimal parsing
                 .symbol { name := tok }
               else
-                let parts := tok.splitOn "::"
+                let parts := rawTok.splitOn "::"
                 match parts with
-                | [pkg, name] => .symbol { package := pkg, name }
+                | [pkg, name] =>
+                    .symbol
+                      { package := normalizePackageName pkg
+                        name := normalizeSymbolName name }
                 | _ => .symbol { name := tok }
         .ok (SExpr.atom atom, rest)
 end
@@ -173,6 +183,37 @@ partial def parseAll : String → Except String (List SExpr)
             | .error e => .error e
             | .ok (sx, rest) => loop rest (sx :: acc)
     loop str.toList []
+
+private def parseOne (input : String) : Except String SExpr := do
+  let (sx, rest) ← parseSExpr input.toList
+  let rest := skipWS rest
+  if rest.isEmpty then
+    pure sx
+  else
+    throw s!"unexpected trailing input: {String.ofList rest}"
+
+private def parsedUppercaseDefunLooksRight : Bool :=
+  match parseOne "(DEFUN FOO (X) (DECLARE (XARGS :GUARD (INTEGERP X))) (IF T X NIL))" with
+  | .ok sx =>
+      match Event.classify sx with
+      | .defun { name := "foo", .. } [{ name := "x", .. }] _ decls body =>
+          decls.length = 1 && body.headSymbol? = some { name := "if" }
+      | _ => false
+  | .error _ => false
+
+private def parsedQualifiedBuiltinLooksRight : Bool :=
+  match parseOne "ACL2::CAR" with
+  | .ok (SExpr.atom (.symbol { package := "ACL2", name := "car" })) => true
+  | _ => false
+
+private def parsedUppercaseKeywordLooksRight : Bool :=
+  match parseOne ":SYSTEM" with
+  | .ok (SExpr.atom (.keyword "system")) => true
+  | _ => false
+
+#guard parsedQualifiedBuiltinLooksRight
+#guard parsedUppercaseKeywordLooksRight
+#guard parsedUppercaseDefunLooksRight
 
 end Parse
 

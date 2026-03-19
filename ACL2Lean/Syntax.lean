@@ -12,6 +12,16 @@ structure Symbol where
   name : String
   deriving DecidableEq, BEq, Hashable, Inhabited
 
+namespace Symbol
+
+@[inline] def normalizedName (s : Symbol) : String :=
+  s.name.map Char.toLower
+
+@[inline] def isNamed (s : Symbol) (name : String) : Bool :=
+  s.normalizedName = name.map Char.toLower
+
+end Symbol
+
 instance : Repr Symbol where
   reprPrec s _ :=
     if s.package == "ACL2" then s.name else s.package ++ "::" ++ s.name
@@ -130,7 +140,14 @@ namespace Event
 partial def parseDefunBody (doc : Option String) (decls : List SExpr) (rest : List SExpr) : (Option String × List SExpr × SExpr) :=
   match rest with
   | SExpr.atom (.string s) :: rest => parseDefunBody (some s) decls rest
-  | (d@(SExpr.cons (SExpr.atom (.symbol { name := "declare", .. })) _)) :: rest => parseDefunBody doc (d :: decls) rest
+  | (d@(SExpr.cons (SExpr.atom (.symbol sym)) _)) :: rest =>
+      if sym.normalizedName = "declare" then
+        parseDefunBody doc (d :: decls) rest
+      else
+        let body := match d :: rest with
+          | [b] => b
+          | many => SExpr.ofList many
+        (doc, decls.reverse, body)
   | rest =>
       let body := match rest with
         | [b] => b
@@ -140,99 +157,103 @@ partial def parseDefunBody (doc : Option String) (decls : List SExpr) (rest : Li
 /-- Quick best-effort to stratify an ACL2 event from its raw syntax. -/
 partial def classify (sexpr : SExpr) : Event :=
   match sexpr with
-  | .cons (.atom (.symbol { name := "in-package", .. })) rest =>
-      match rest.toList? with
-      | some [SExpr.atom (.string pkg)] => .inPackage pkg
-      | some [SExpr.atom (.symbol sym)] => .inPackage sym.name
+  | .cons (.atom (.symbol sym)) rest =>
+      match sym.normalizedName with
+      | "in-package" =>
+          match rest.toList? with
+          | some [SExpr.atom (.string pkg)] => .inPackage pkg
+          | some [SExpr.atom (.symbol pkg)] => .inPackage pkg.name
+          | _ => .skip sexpr
+      | "include-book" =>
+          match rest.toList? with
+          | some (SExpr.atom (.string path) :: tail) =>
+              let dirs := tail.map fun
+                | SExpr.atom (.keyword kw) => kw
+                | _ => ""
+              .includeBook path dirs
+          | some (SExpr.atom (.symbol path) :: tail) =>
+              let dirs := tail.map fun
+                | SExpr.atom (.keyword kw) => kw
+                | _ => ""
+              .includeBook path.name dirs
+          | _ => .skip sexpr
+      | "defun" =>
+          match rest.toList? with
+          | some (SExpr.atom (.symbol name) :: params :: rest) =>
+              let fmls :=
+                match params.toList? with
+                | some lst =>
+                    lst.filterMap
+                      (fun
+                        | SExpr.atom (.symbol s) => some s
+                        | _ => none)
+                | none => []
+              let (doc, decls, bodyExpr) := parseDefunBody none [] rest
+              .defun name fmls doc decls bodyExpr
+          | _ => .skip sexpr
+      | "defthm" =>
+          match rest.toList? with
+          | some (SExpr.atom (.symbol name) :: body :: hints) =>
+              let hintExpr :=
+                match hints with
+                | [] => none
+                | more => some (SExpr.ofList more)
+              .defthm name body hintExpr
+          | _ => .skip sexpr
+      | "defmacro" =>
+          match rest.toList? with
+          | some (SExpr.atom (.symbol name) :: params :: rest) =>
+              let fmls :=
+                match params.toList? with
+                | some lst =>
+                    lst.filterMap
+                      (fun
+                        | SExpr.atom (.symbol s) => some s
+                        | _ => none)
+                | none => []
+              let (doc, decls, bodyExpr) := parseDefunBody none [] rest
+              .defmacro name fmls doc decls bodyExpr
+          | _ => .skip sexpr
+      | "local" =>
+          match rest.toList? with
+          | some [inner] => .local (classify inner)
+          | _ => .skip sexpr
+      | "in-theory" => .inTheory rest
+      | "mutual-recursion" =>
+          match rest.toList? with
+          | some lst => .mutualRecursion (lst.map classify)
+          | _ => .skip sexpr
+      | "encapsulate" =>
+          match rest.toList? with
+          | some (_ :: events) => .encapsulate (events.map classify)
+          | _ => .skip sexpr
+      | "make-event" => .makeEvent rest
+      | "defrec" =>
+          match rest.toList? with
+          | some (SExpr.atom (.symbol name) :: params :: _) =>
+              let fmls := match params.toList? with
+                | some lst => lst.filterMap (fun | SExpr.atom (.symbol s) => some s | _ => none)
+                | none => []
+              .defrec name fmls
+          | _ => .skip sexpr
+      | "defconst" =>
+          match rest.toList? with
+          | some [SExpr.atom (.symbol name), val] => .defconst name val
+          | _ => .skip sexpr
+      | "defstobj" =>
+          match rest.toList? with
+          | some (SExpr.atom (.symbol name) :: fields) => .defstobj name fields
+          | _ => .skip sexpr
+      | "table" =>
+          match rest.toList? with
+          | some (SExpr.atom (.symbol name) :: args) => .table name args
+          | _ => .skip sexpr
+      | "program" =>
+          match rest with
+          | .nil => .skip sexpr
+          | _ => .skip sexpr
+      | "set-verify-guards-eagerness" => .skip sexpr
       | _ => .skip sexpr
-  | .cons (.atom (.symbol { name := "include-book", .. })) rest =>
-      match rest.toList? with
-      | some (SExpr.atom (.string path) :: tail) =>
-          let dirs := tail.map fun
-            | SExpr.atom (.keyword kw) => kw
-            | _ => ""
-          .includeBook path dirs
-      | some (SExpr.atom (.symbol sym) :: tail) =>
-          let dirs := tail.map fun
-            | SExpr.atom (.keyword kw) => kw
-            | _ => ""
-          .includeBook sym.name dirs
-      | _ => .skip sexpr
-  | .cons (.atom (.symbol { name := "defun", .. })) rest =>
-      match rest.toList? with
-      | some (SExpr.atom (.symbol name) :: params :: rest) =>
-          let fmls :=
-            match params.toList? with
-            | some lst =>
-                lst.filterMap
-                  (fun
-                    | SExpr.atom (.symbol s) => some s
-                    | _ => none)
-            | none => []
-          let (doc, decls, bodyExpr) := parseDefunBody none [] rest
-          .defun name fmls doc decls bodyExpr
-      | _ => .skip sexpr
-  | .cons (.atom (.symbol { name := "defthm", .. })) rest =>
-      match rest.toList? with
-      | some (SExpr.atom (.symbol name) :: body :: hints) =>
-          let hintExpr :=
-            match hints with
-            | [] => none
-            | more => some (SExpr.ofList more)
-          .defthm name body hintExpr
-      | _ => .skip sexpr
-  | .cons (.atom (.symbol { name := "defmacro", .. })) rest =>
-      match rest.toList? with
-      | some (SExpr.atom (.symbol name) :: params :: rest) =>
-          let fmls :=
-            match params.toList? with
-            | some lst =>
-                lst.filterMap
-                  (fun
-                    | SExpr.atom (.symbol s) => some s
-                    | _ => none)
-            | none => []
-          let (doc, decls, bodyExpr) := parseDefunBody none [] rest
-          .defmacro name fmls doc decls bodyExpr
-      | _ => .skip sexpr
-  | .cons (.atom (.symbol { name := "local", .. })) rest =>
-      match rest.toList? with
-      | some [inner] => .local (classify inner)
-      | _ => .skip sexpr
-  | .cons (.atom (.symbol { name := "in-theory", .. })) body =>
-      .inTheory body
-  | .cons (.atom (.symbol { name := "mutual-recursion", .. })) rest =>
-      match rest.toList? with
-      | some lst => .mutualRecursion (lst.map classify)
-      | _ => .skip sexpr
-  | .cons (.atom (.symbol { name := "encapsulate", .. })) rest =>
-      match rest.toList? with
-      | some (_ :: events) => .encapsulate (events.map classify)
-      | _ => .skip sexpr
-  | .cons (.atom (.symbol { name := "make-event", .. })) rest =>
-      .makeEvent rest
-  | .cons (.atom (.symbol { name := "defrec", .. })) rest =>
-      match rest.toList? with
-      | some (SExpr.atom (.symbol name) :: params :: _) =>
-          let fmls := match params.toList? with
-            | some lst => lst.filterMap (fun | SExpr.atom (.symbol s) => some s | _ => none)
-            | none => []
-          .defrec name fmls
-      | _ => .skip sexpr
-  | .cons (.atom (.symbol { name := "defconst", .. })) rest =>
-      match rest.toList? with
-      | some [SExpr.atom (.symbol name), val] => .defconst name val
-      | _ => .skip sexpr
-  | .cons (.atom (.symbol { name := "defstobj", .. })) rest =>
-      match rest.toList? with
-      | some (SExpr.atom (.symbol name) :: fields) => .defstobj name fields
-      | _ => .skip sexpr
-  | .cons (.atom (.symbol { name := "table", .. })) rest =>
-      match rest.toList? with
-      | some (SExpr.atom (.symbol name) :: args) => .table name args
-      | _ => .skip sexpr
-  | .cons (.atom (.symbol { name := "program", .. })) .nil => .skip sexpr
-  | .cons (.atom (.symbol { name := "set-verify-guards-eagerness", .. })) _ => .skip sexpr
   | _ => .skip sexpr
 
 end Event

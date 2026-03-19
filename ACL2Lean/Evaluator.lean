@@ -1,4 +1,5 @@
 import ACL2Lean.Syntax
+import ACL2Lean.Parser
 
 namespace ACL2
 
@@ -33,7 +34,7 @@ def append (a b : SExpr) : SExpr :=
 
 /-- Basic built-in functions. -/
 partial def callBuiltin (name : String) (args : List SExpr) : EvalM SExpr :=
-  match name, args with
+  match name.map Char.toLower, args with
   | "cons", [a, b] => .ok (SExpr.cons a b)
   | "car", [.cons a _] => .ok a
   | "car", [.nil] => .ok .nil
@@ -99,37 +100,47 @@ partial def eval (w : World) (env : Env) (expr : SExpr) : EvalM SExpr :=
       match env.get? s with
       | some v => .ok v
       | none =>
-          if s.name = "T" then .ok (SExpr.atom (.bool true))
-          else if s.name = "NIL" then .ok .nil
+          if s.normalizedName = "t" then .ok (SExpr.atom (.bool true))
+          else if s.normalizedName = "nil" then .ok .nil
           else throw s!"unbound variable: {s.name}"
-  | .cons (.atom (.symbol { name := "quote", .. })) (.cons v .nil) => .ok v
-  | .cons (.atom (.symbol { name := "if", .. })) (.cons c (.cons t (.cons e .nil))) => do
-      let cv ← eval w env c
-      if isTruthy cv then eval w env t else eval w env e
-  | .cons (.atom (.symbol { name := "let", .. })) (.cons bindings (.cons fbody .nil)) => do
-      let bList ← match bindings.toList? with | some l => .ok l | none => throw "invalid let bindings"
-      let mut curEnv := env
-      for b in bList do
-        let bItems ← match b.toList? with | some l => .ok l | none => throw "invalid binding"
-        match bItems with
-        | [SExpr.atom (.symbol s), valExpr] => do
-            let v ← eval w env valExpr
-            curEnv := curEnv.insert s v
-        | _ => throw "invalid binding format"
-      eval w curEnv fbody
   | .cons (.atom (.symbol s)) argsExpr => do
-      let args ← match argsExpr.toList? with | some l => .ok l | none => throw "invalid arguments"
-      let argVals ← args.mapM (eval w env)
-      match w.defs.get? s with
-      | some (formals, fbody) =>
-          if formals.length != argVals.length then
-            throw s!"wrong number of arguments for {s.name}"
-          else
-            let mut newEnv := {}
-            for i in [0:formals.length] do
-              newEnv := newEnv.insert formals[i]! argVals[i]!
-            eval w newEnv fbody
-      | none => callBuiltin s.name argVals
+      if s.isNamed "quote" then
+        match argsExpr with
+        | .cons v .nil => .ok v
+        | _ => throw "malformed quote"
+      else if s.isNamed "if" then
+        match argsExpr with
+        | .cons c (.cons t (.cons e .nil)) => do
+            let cv ← eval w env c
+            if isTruthy cv then eval w env t else eval w env e
+        | _ => throw "malformed if"
+      else if s.isNamed "let" then
+        match argsExpr with
+        | .cons bindings (.cons fbody .nil) => do
+            let bList ← match bindings.toList? with | some l => .ok l | none => throw "invalid let bindings"
+            let mut curEnv := env
+            for b in bList do
+              let bItems ← match b.toList? with | some l => .ok l | none => throw "invalid binding"
+              match bItems with
+              | [SExpr.atom (.symbol s), valExpr] => do
+                  let v ← eval w env valExpr
+                  curEnv := curEnv.insert s v
+              | _ => throw "invalid binding format"
+            eval w curEnv fbody
+        | _ => throw "malformed let"
+      else
+        let args ← match argsExpr.toList? with | some l => .ok l | none => throw "invalid arguments"
+        let argVals ← args.mapM (eval w env)
+        match w.defs.get? s with
+        | some (formals, fbody) =>
+            if formals.length != argVals.length then
+              throw s!"wrong number of arguments for {s.name}"
+            else
+              let mut newEnv := {}
+              for i in [0:formals.length] do
+                newEnv := newEnv.insert formals[i]! argVals[i]!
+              eval w newEnv fbody
+        | none => callBuiltin s.name argVals
   | _ => throw s!"invalid expression: {repr expr}"
 
 /-- Expand macros in an s-expression. -/
@@ -151,6 +162,46 @@ partial def macroexpand (w : World) (sexpr : SExpr) : EvalM SExpr :=
       let cdr' ← macroexpand w cdr
       .ok (.cons car' cdr')
   | _ => .ok sexpr
+
+private def parseOne (input : String) : EvalM SExpr := do
+  let (sx, rest) ← Parse.parseSExpr input.toList
+  let rest := Parse.skipWS rest
+  if rest.isEmpty then
+    pure sx
+  else
+    throw s!"unexpected trailing input: {String.ofList rest}"
+
+private def parseWorld (input : String) : EvalM World := do
+  let raw ← Parse.parseAll input
+  pure (World.replay (raw.map Event.classify))
+
+private def parseAndEval (input : String) : EvalM SExpr := do
+  let sx ← parseOne input
+  eval World.empty {} sx
+
+private def evalInSource (src expr : String) : EvalM SExpr := do
+  let w ← parseWorld src
+  let sx ← parseOne expr
+  eval w {} sx
+
+private def uppercaseIfEvaluates : Bool :=
+  match parseAndEval "(IF T 1 2)" with
+  | .ok (SExpr.atom (.number (.int 1))) => true
+  | _ => false
+
+private def uppercaseLetEvaluates : Bool :=
+  match parseAndEval "(LET ((X 5)) (BINARY-+ X 10))" with
+  | .ok (SExpr.atom (.number (.int 15))) => true
+  | _ => false
+
+private def uppercaseImportedDefunEvaluates : Bool :=
+  match evalInSource "(DEFUN FOO (X) (BINARY-+ X 1))" "(FOO 4)" with
+  | .ok (SExpr.atom (.number (.int 5))) => true
+  | _ => false
+
+#guard uppercaseIfEvaluates
+#guard uppercaseLetEvaluates
+#guard uppercaseImportedDefunEvaluates
 
 end Evaluator
 

@@ -5,36 +5,36 @@ namespace ACL2
 namespace Translator
 
 def translateSymbol (s : Symbol) : String :=
-  if s.name = "+" || s.name = "binary-+" then "Logic.plus"
-  else if s.name = "-" || s.name = "binary--" then "Logic.minus"
-  else if s.name = "*" || s.name = "binary-*" then "Logic.times"
-  else if s.name = "/" then "Logic.div"
-  else if s.name = "<" then "Logic.lt"
-  else if s.name = "=" then "Logic.eq"
-  else if s.name = ">" then "Logic.gt"
-  else if s.name = "<=" then "Logic.le"
-  else if s.name = ">=" then "Logic.ge"
-  else if s.name = "if" then "Logic.if_"
-  else if s.name = "and" then "Logic.and"
-  else if s.name = "or" then "Logic.or"
-  else if s.name = "not" then "Logic.not"
-  else if s.name = "implies" then "Logic.implies"
-  else if s.name = "equal" then "Logic.equal"
-  else if s.name = "consp" then "Logic.consp"
-  else if s.name = "atom" then "Logic.atom"
-  else if s.name = "car" then "Logic.car"
-  else if s.name = "cdr" then "Logic.cdr"
-  else if s.name = "cons" then "Logic.cons"
-  else if s.name = "list" then "Logic.list"
-  else if s.name = "zp" then "Logic.zp"
-  else if s.name = "evenp" then "Logic.evenp"
-  else if s.name = "oddp" then "Logic.oddp"
-  else if s.name = "integerp" then "Logic.integerp"
-  else if s.name = "posp" then "Logic.posp"
-  else if s.name = "natp" then "Logic.natp"
-  else if s.name = "expt" then "Logic.expt"
+  let name := s.normalizedName
+  if name = "+" || name = "binary-+" then "Logic.plus"
+  else if name = "-" || name = "binary--" then "Logic.minus"
+  else if name = "*" || name = "binary-*" then "Logic.times"
+  else if name = "/" then "Logic.div"
+  else if name = "<" then "Logic.lt"
+  else if name = "=" then "Logic.eq"
+  else if name = ">" then "Logic.gt"
+  else if name = "<=" then "Logic.le"
+  else if name = ">=" then "Logic.ge"
+  else if name = "if" then "Logic.if_"
+  else if name = "and" then "Logic.and"
+  else if name = "or" then "Logic.or"
+  else if name = "not" then "Logic.not"
+  else if name = "implies" then "Logic.implies"
+  else if name = "equal" then "Logic.equal"
+  else if name = "consp" then "Logic.consp"
+  else if name = "atom" then "Logic.atom"
+  else if name = "car" then "Logic.car"
+  else if name = "cdr" then "Logic.cdr"
+  else if name = "cons" then "Logic.cons"
+  else if name = "list" then "Logic.list"
+  else if name = "zp" then "Logic.zp"
+  else if name = "evenp" then "Logic.evenp"
+  else if name = "oddp" then "Logic.oddp"
+  else if name = "integerp" then "Logic.integerp"
+  else if name = "posp" then "Logic.posp"
+  else if name = "natp" then "Logic.natp"
+  else if name = "expt" then "Logic.expt"
   else
-    let name := s.name.toLower
     let name := name.replace "-" "_"
     let name := name.replace "!" "_bang"
     let name := name.replace "?" "_p"
@@ -60,16 +60,22 @@ partial def translateExpr (expr : SExpr) : String :=
   | .atom (.number (.decimal m e)) => s!"(Logic.decimal ({m}) ({e}))"
   | .atom (.string s) => s!"(SExpr.atom (.string \"{s}\"))"
   | .atom (.symbol s) => translateSymbol s
-  | .cons (.atom (.symbol { name := "quote", .. })) (.cons v .nil) =>
-      s!"(Logic.quote_ {repr v})"
-  | .cons (.atom (.symbol { name := "if", .. })) (.cons c (.cons t (.cons e .nil))) =>
-      s!"(Logic.if_ {translateExpr c} {translateExpr t} {translateExpr e})"
   | .cons (.atom (.symbol s)) argsExpr =>
-      let args := match argsExpr.toList? with | some l => l.map translateExpr | none => []
-      let fn := translateSymbol s
-      if ["Logic.plus", "Logic.times", "Logic.and", "Logic.or"].contains fn && args.length > 2 then
-        foldNary fn args
-      else if args.isEmpty then fn else s!"({fn} {String.intercalate " " args})"
+      if s.isNamed "quote" then
+        match argsExpr with
+        | .cons v .nil => s!"(Logic.quote_ {repr v})"
+        | _ => s!"sorry /- malformed quote: {repr expr} -/"
+      else if s.isNamed "if" then
+        match argsExpr with
+        | .cons c (.cons t (.cons e .nil)) =>
+            s!"(Logic.if_ {translateExpr c} {translateExpr t} {translateExpr e})"
+        | _ => s!"sorry /- malformed if: {repr expr} -/"
+      else
+        let args := match argsExpr.toList? with | some l => l.map translateExpr | none => []
+        let fn := translateSymbol s
+        if ["Logic.plus", "Logic.times", "Logic.and", "Logic.or"].contains fn && args.length > 2 then
+          foldNary fn args
+        else if args.isEmpty then fn else s!"({fn} {String.intercalate " " args})"
   | _ => s!"sorry /- {repr expr} -/"
 
 partial def collectVars (expr : SExpr) (acc : List String := []) : List String :=
@@ -80,15 +86,20 @@ partial def collectVars (expr : SExpr) (acc : List String := []) : List String :
       else if ["nil", "true", "false", "rational", "decimal"].contains name then acc
       else if acc.contains name then acc
       else name :: acc
-  | .cons (.atom (.symbol { name := "quote", .. })) _ => acc
-  | .cons (.atom (.symbol { name := "if", .. })) (.cons c (.cons t (.cons e .nil))) =>
-      let acc := collectVars c acc
-      let acc := collectVars t acc
-      collectVars e acc
-  | .cons (.atom (.symbol _)) argsExpr =>
-      match argsExpr.toList? with
-      | some args => args.foldl (fun a e => collectVars e a) acc
-      | none => acc
+  | .cons (.atom (.symbol s)) argsExpr =>
+      if s.isNamed "quote" then
+        acc
+      else if s.isNamed "if" then
+        match argsExpr with
+        | .cons c (.cons t (.cons e .nil)) =>
+            let acc := collectVars c acc
+            let acc := collectVars t acc
+            collectVars e acc
+        | _ => acc
+      else
+        match argsExpr.toList? with
+        | some args => args.foldl (fun a e => collectVars e a) acc
+        | none => acc
   | _ => acc
 
 def sanitizeName (s : String) : String :=
@@ -111,6 +122,20 @@ def translateDefthm (name : Symbol) (body : SExpr) (hints : Option SExpr) : Stri
   let fmls := String.intercalate " " (vars.map fun v => s!"({v} : SExpr)")
   let hintStr := match hints with | some h => s!" /- hints: {repr h} -/" | none => ""
   s!"theorem {nameStr} {fmls} : Logic.toBool ({translateExpr body}) = true :={hintStr}\n  sorry"
+
+private def uppercaseIfExpr : SExpr :=
+  .cons
+    (.atom (.symbol { name := "IF" }))
+    (SExpr.ofList
+      [ .atom (.bool true)
+      , .cons (.atom (.symbol { name := "CONS" }))
+          (SExpr.ofList [ .atom (.symbol { name := "X" }), .nil ])
+      , .nil
+      ])
+
+#guard translateSymbol { name := "BINARY-+" } = "Logic.plus"
+#guard (translateExpr uppercaseIfExpr).startsWith "(Logic.if_"
+#guard (translateDefthm { name := "PLUS-COMM" } uppercaseIfExpr none).startsWith "theorem plus_comm"
 
 end Translator
 
