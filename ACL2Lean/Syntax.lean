@@ -301,10 +301,53 @@ partial def parseDefunBody (doc : Option String) (decls : List SExpr) (rest : Li
           | many => SExpr.ofList many
         (doc, decls.reverse, body)
   | rest =>
-      let body := match rest with
+        let body := match rest with
         | [b] => b
         | _ => SExpr.ofList rest
       (doc, decls.reverse, body)
+
+/--
+Best-effort recovery of a quasiquoted event skeleton.
+
+This does not execute ACL2; it only peels away quasiquote syntax so that static
+`make-event` expansions can still expose nested `defthm` / `defconst` forms.
+-/
+private partial def dequasiquote (depth : Nat) : SExpr → SExpr
+  | expr@(.cons (.atom (.symbol sym)) (.cons inner .nil)) =>
+      if sym.isNamed "quasiquote" then
+        if depth = 0 then
+          dequasiquote (depth + 1) inner
+        else
+          SExpr.ofList [SExpr.atom (.symbol sym), dequasiquote (depth + 1) inner]
+      else if sym.isNamed "unquote" || sym.isNamed "unquote-splicing" then
+        if depth = 1 then
+          inner
+        else
+          SExpr.ofList [SExpr.atom (.symbol sym), dequasiquote (depth - 1) inner]
+      else
+        match expr with
+        | .cons car cdr => .cons (dequasiquote depth car) (dequasiquote depth cdr)
+        | _ => expr
+  | .cons car cdr => .cons (dequasiquote depth car) (dequasiquote depth cdr)
+  | expr => expr
+
+/--
+Peel lightweight wrappers that ACL2 commonly uses around generated events.
+
+This stays syntactic: it does not attempt to evaluate arbitrary `let`/`cond`
+terms produced inside `make-event`.
+-/
+private partial def unwrapGeneratedEventExpr (expr : SExpr) : SExpr :=
+  let expr := dequasiquote 0 expr
+  match expr.toList? with
+  | some (.atom (.symbol sym) :: rest) =>
+      if sym.isNamed "value" || sym.isNamed "value-triple" then
+        match rest.reverse with
+        | inner :: _ => unwrapGeneratedEventExpr inner
+        | [] => expr
+      else
+        expr
+  | _ => expr
 
 /-- Quick best-effort to stratify an ACL2 event from its raw syntax. -/
 partial def classify (sexpr : SExpr) : Event :=
@@ -366,6 +409,13 @@ partial def classify (sexpr : SExpr) : Event :=
           match rest.toList? with
           | some [inner] => .local (classify inner)
           | _ => .skip sexpr
+      | "with-output" =>
+          match rest.toList? with
+          | some args =>
+              match args.reverse with
+              | inner :: _ => classify inner
+              | [] => .skip sexpr
+          | _ => .skip sexpr
       | "in-theory" =>
           match rest.toList? with
           | some [expr] => .inTheory expr
@@ -407,6 +457,32 @@ partial def classify (sexpr : SExpr) : Event :=
       | _ => .skip sexpr
   | _ => .skip sexpr
 
+/-- Recover statically visible nested events from a `make-event`. -/
+def generatedEvents (body : SExpr) : List Event :=
+  match body.toList? with
+  | some [generatedExpr] =>
+      let recovered := unwrapGeneratedEventExpr generatedExpr
+      match classify recovered with
+      | .skip _ => []
+      | event => [event]
+  | _ => []
+
+/-- Flatten nested ACL2 event structure into replay order. -/
+partial def flatten : Event → List Event
+  | .local inner => flatten inner
+  | .mutualRecursion events => events.foldr (fun ev acc => flatten ev ++ acc) []
+  | .encapsulate events => events.foldr (fun ev acc => flatten ev ++ acc) []
+  | .makeEvent body =>
+      let generated := generatedEvents body
+      if generated.isEmpty then
+        [.makeEvent body]
+      else
+        generated.foldr (fun ev acc => flatten ev ++ acc) []
+  | event => [event]
+
+def flattenList (events : List Event) : List Event :=
+  events.foldr (fun ev acc => flatten ev ++ acc) []
+
 end Event
 
 /-- Semantics: interpret events into a growing environment. -/
@@ -439,7 +515,10 @@ partial def step (w : World) (event : Event) : World :=
   | .inTheory expr => { w with theories := w.theories ++ [TheoryExpr.ofSExpr expr] }
   | .mutualRecursion evs => evs.foldl step w
   | .encapsulate evs => evs.foldl step w
-  | .makeEvent _ => w
+  | .makeEvent body =>
+      match Event.generatedEvents body with
+      | [] => w
+      | generated => generated.foldl step w
   | .defrec name fields => { w with recs := w.recs.insert name fields }
   | .defconst name value => { w with consts := w.consts.insert name value }
   | .defstobj name fields => { w with stobjs := w.stobjs.insert name fields }
