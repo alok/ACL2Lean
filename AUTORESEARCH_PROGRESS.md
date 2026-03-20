@@ -1228,3 +1228,44 @@ Next best ideas:
 1. execute structured dynamic `use` actions against Lean replay state, starting with theorem refs and `(:INSTANCE ...)` substitutions rather than only surfacing them in notes
 2. give `split-goal` and `typed-term` actions the same Lean-side payload treatment so replay/UI consumers stop relying on flat summaries for those paths too
 3. decide whether the recent dynamic hint/proof-mode slices from `:IN-THEORY` through warning payloads and now `:USE` are coherent enough to promote together to `main`
+
+## 2026-03-20 Iteration 32
+
+Completed this iteration:
+
+- added `DynamicReplayState` to `ACL2Lean.HintBridge`, which folds parsed dynamic ACL2 actions into a Lean-side replay summary instead of leaving them as a flat action log
+- taught that replay-state layer to accumulate theory adjustments (`:in-theory`, `disable-rule`, `disable-definition`), replay uses, clause-processors, expands, cases, typed terms, selected induction, `do-not-induct`, and `otf-flg`
+- updated `acl2lean hints` so real dynamic artifacts now print a `replay-state:` section, including a compact theory timeline / use timeline plus selected induction and theorem-level search toggles when ACL2 emitted them
+- updated `ACL2Lean.ProofMode` so dynamic hint snapshots thread the interpreted replay state into the goal summary, rune list, next-move suggestions, and notes instead of only exposing raw action strings
+- documented the new interpretation layer in `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md`, and tracked the slice in Linear as `ALOK-572`
+
+Verification:
+
+- research branch commit `3a3c1c9`: `lean-lsp-mcp` diagnostics on `ACL2Lean/HintBridge.lean`
+- research branch commit `3a3c1c9`: `lean-lsp-mcp` diagnostics on `ACL2Lean/ProofMode.lean`
+- research branch commit `3a3c1c9`: `lake build ACL2Lean.HintBridge ACL2Lean.ProofMode Main`
+- research branch commit `3a3c1c9`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp 'mod-+-*-floor-gcd' | rg -n 'replay-state|theory-timeline|use-timeline|do-not-induct:|otf-flg:'`
+- research branch commit `3a3c1c9`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp make-prog1-correct | rg -n 'replay-state|selected-induction'`
+- research branch commit `3a3c1c9`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-log2.lisp nbr-calls-flog2-is-logarithmic | sed -n '1,120p'`
+- research branch commit `3a3c1c9`: `lake build`
+- research branch commit `3a3c1c9`: `uv run python Verify.py`
+- pushed research branch commit `3a3c1c9` to `origin/autoresearch/mar19-acl2lean`
+- research branch commit `3a3c1c9`: `lake exe acl2lean ci autoresearch/mar19-acl2lean` showed the new GitHub Actions run for that push in progress
+- `gh run watch 23334634497 --exit-status` succeeded for GitHub Actions run `23334634497`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- this is the first Lean-side step that interprets the dynamic hint-generator output as replay state rather than only parsing and displaying individual actions
+- real `die-hard` artifacts now surface theorem-local theory/use timelines plus `do-not-induct` / `otf-flg`, while `make-prog1-correct` surfaces ACL2's chosen induction candidate as a first-class summary instead of burying it in notes
+- I did not promote this slice to `main` yet because it still depends on the research-branch dynamic proof-mode path; the likely promotion boundary is a coherent batch that includes dynamic extraction, structured payload decoding, and this first replay-state interpretation layer
+
+Next best ideas:
+
+1. execute the interpreted replay state against Lean goals, starting with theory disables and simple theorem/instance `use` steps instead of only surfacing them in the CLI/UI
+2. add the same replay-state treatment for `split-goal` and `typed-term` actions so those dynamic hints also stop relying on flat summaries
+3. decide whether the current dynamic hint stack from ACL2 extraction through replay-state interpretation is now coherent enough for a `main` promotion batch
