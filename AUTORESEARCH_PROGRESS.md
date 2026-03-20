@@ -1520,3 +1520,47 @@ Next best ideas:
 1. extend `acl2_use` beyond exact theorem-name matches to richer dynamic `:USE` payloads, especially `(:INSTANCE ...)` bindings and checkpoint-local theorem bundles
 2. execute the next dynamic ACL2 actions against Lean goals, starting with theory-disable guidance and simple goal-targeted `use` steps that are not already exact imported-theorem matches
 3. use the new replay-seed tactic lines to discharge a real subgoal inside `nbr_calls_flog2_is_logarithmic` or another imported theorem replay, so the bridge advances from “matching imported theorem goal” to “goal-directed theorem reuse within a larger replay”
+
+## 2026-03-20 Iteration 39
+
+Completed this iteration:
+
+- added reusable theorem-context lookup helpers in `ACL2Lean/Import.lean`, so Lean-side tooling can recover theorem-local source hints from a parsed ACL2 book without duplicating search logic in the UI or CLI layers
+- taught `ACL2Lean.HintBridge.fetchArtifact` to refine dynamic ACL2 `use` actions with theorem-local source hints when ACL2’s emitted summary collapses `(:INSTANCE ...)` payloads to a bare theorem name, while keeping the original dynamic goal targeting from the oracle output
+- threaded those recovered instance bindings through the existing `UsePayload` / resolved-use / replay-seed path, so `acl2lean hints` and `ACL2Lean.ProofMode` now show real instance payloads like `(:instance pair-pow-2n-2n+1 ...)` and instance-aware replay summaries instead of only theorem-name placeholders
+- added `ACL2Lean.Tactics.acl2_use_instance`, which resolves imported ACL2 theorem names through `ImportedRegistry` and applies them with ACL2-style binding lists such as `((n (+ n 1)))`
+- validated the new executor with a checked `Log2Replay` smoke theorem and an external `lake env lean` example using `acl2_use_instance "natp-clog2" with "((n (+ n 1)))"`
+- updated `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md` to document source-guided instance recovery plus the new instance-capable replay seed, and tracked the slice in Linear as `ALOK-579`
+
+Verification:
+
+- research branch commit `1584219`: `lean-lsp-mcp` diagnostics on `ACL2Lean/Import.lean`, `ACL2Lean/HintBridge.lean`, `ACL2Lean/Tactics.lean`, and `ACL2Lean/Imported/Log2Replay.lean`
+- research branch commit `1584219`: `lake build ACL2Lean.Tactics ACL2Lean.HintBridge ACL2Lean.Imported.Log2Replay`
+- research branch commit `1584219`: `lake build acl2lean`
+- research branch commit `1584219`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-tri-sq.lisp pair-pow-log-is-correct | sed -n '45,95p'`
+- research branch commit `1584219`: `./.lake/build/bin/acl2lean hints acl2_samples/apply-model-apply.lisp tamep-implicant-1 | sed -n '24,80p'`
+- research branch commit `1584219`: `printf 'import ACL2Lean.Imported.Log2Replay ... example ... := by acl2_use_instance "natp-clog2" with "((n (+ n 1)))"' | lake env lean /dev/stdin`
+- research branch commit `1584219`: `lake build`
+- research branch commit `1584219`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `1584219`: `uv run python Verify.py`
+- pushed research branch commit `1584219` to `origin/autoresearch/mar19-acl2lean`
+- research branch commit `1584219`: `lake exe acl2lean ci autoresearch/mar19-acl2lean` reported fresh GitHub Actions run `23339456878` in progress
+- `gh run watch 23339456878 --exit-status` succeeded for GitHub Actions run `23339456878`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- this closes the gap where real theorem-local oracle guidance in books like `2009-tri-sq` and `apply-model-apply` lost their actual substitution data just before Lean consumed them
+- the real `pair-pow-log-is-correct` oracle path now surfaces checkpoint-local instance guidance for both warning-derived `use` actions, and the real `tamep-implicant-1` path now recovers the source-level `badge-type` instance even though ACL2’s summary only reported `BADGE-TYPE`
+- `acl2_use_instance` is the first executor on this branch that accepts ACL2-style substitution payloads instead of only a bare theorem name, which materially improves the chance of turning richer oracle `:USE` guidance into checked Lean replay steps
+- I did not promote this slice to `main` yet because the strongest promotion boundary is likely a slightly larger batch that pairs this richer instance recovery with a real imported theorem bundle from one of the instance-heavy books, so the new executor is exercised on a non-smoke dynamic oracle path
+
+Next best ideas:
+
+1. import and register a small theorem cluster from an instance-heavy book like `2009-tri-sq` or `apply-model-apply`, so one of the newly recovered real `(:INSTANCE ...)` oracle steps can resolve all the way to an executable replay seed
+2. refine theorem-global `hint-event` `:USE` summaries with source instances when there is a unique source match, not just the checkpoint-local warning-derived `use` actions
+3. execute the next dynamic action families against Lean goals, especially theory-disable guidance and simple split/induction steps that already have normalized payloads
