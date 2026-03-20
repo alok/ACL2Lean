@@ -14,3 +14,4 @@ import ACL2Lean.DSL
 import ACL2Lean.PrettyPrinter
 import ACL2Lean.ProofMode
 import ACL2Lean.ProofModeDemo
+import ACL2Lean.Imported.Log2Replay
