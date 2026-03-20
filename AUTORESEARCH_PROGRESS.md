@@ -1061,3 +1061,46 @@ Next best ideas:
 1. start executing the newly parsed dynamic `expand` and `do-not-induct` actions against Lean replay state, alongside the existing `use` / theory guidance
 2. surface and normalize real dynamic `:cases` payloads once a corpus theorem emits them or another ACL2 path exposes them cleanly
 3. decide whether the recent dynamic hint/proof-mode slices are coherent enough to promote together to `main` as one stable replay-infrastructure batch
+
+## 2026-03-20 Iteration 29
+
+Completed this iteration:
+
+- added Lean-side `DynamicAction` helpers in `ACL2Lean.HintBridge` for dynamic clause-processor and induction payloads, so those actions now expose structured `clause-processor`, `induct-term`, and `induction-rule` views instead of only flat summaries plus ad hoc targets
+- taught `acl2lean hints` action rendering to print the new structured lines on real ACL2 artifacts, including `FLAG::FLAG-IS-CP` from `FLAG-LEMMA-FOR-GUESS-ILKS-ALIST-CORRECT` and `MAKE-PROG1-INDUCTION` guidance from `MAKE-PROG1-CORRECT`
+- updated `ACL2Lean.ProofMode` so dynamic hint snapshots record clause-processor and induction payloads as explicit note entries (`action-clause-processor ...`, `action-induct-term ...`, `action-induction-rule ...`) instead of burying them inside prose summaries
+- added transcript regression coverage for echoed `:CLAUSE-PROCESSOR` and `:INDUCT` hint events and documented the broader dynamic payload-normalization surface in `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md`
+- tracked this slice in Linear as `ALOK-568`
+
+Verification:
+
+- research branch commit `e460995`: `lean-lsp-mcp` diagnostics on `ACL2Lean/HintBridge.lean`
+- research branch commit `e460995`: `lean-lsp-mcp` diagnostics on `ACL2Lean/ProofMode.lean`
+- research branch commit `e460995`: `PYTHONPATH=scripts uv run python -m unittest scripts.test_acl2_hint_bridge.HintBridgeParsingTests.test_transcript_echoed_clause_processor_hint_event_is_recovered scripts.test_acl2_hint_bridge.HintBridgeParsingTests.test_transcript_echoed_induct_hint_event_is_recovered`
+- research branch commit `e460995`: `PYTHONPATH=scripts uv run python -m unittest scripts.test_acl2_hint_bridge`
+- research branch commit `e460995`: `lake build ACL2Lean.HintBridge ACL2Lean.ProofMode Main`
+- research branch commit `e460995`: `LAKE_NO_CACHE=1 lake build acl2lean`
+- research branch commit `e460995`: `./.lake/build/bin/acl2lean hints acl2_samples/apply-model-apply.lisp 'FLAG-LEMMA-FOR-GUESS-ILKS-ALIST-CORRECT' | sed -n '96,122p'`
+- research branch commit `e460995`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp make-prog1-correct | sed -n '52,72p'`
+- research branch commit `e460995`: `uv run python Verify.py`
+- research branch commit `e460995`: `lake build` passed after restoring user-write permissions on `~/.elan/toolchains/leanprover--lean4---v4.29.0-rc6/lake/cache/artifacts`
+- pushed research branch commit `e460995` to `origin/autoresearch/mar19-acl2lean`
+- `gh run watch 23332652386 --exit-status` succeeded for GitHub Actions run `23332652386`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- this advances the hint-generator path directly: real ACL2 oracle artifacts that already mention clause processors and induction schemes now cross into Lean as structured payloads, which removes another layer of summary-scraping before replay execution
+- `FLAG-LEMMA-FOR-GUESS-ILKS-ALIST-CORRECT` now shows `clause-processor: FLAG::flag-is-cp` in the CLI, while `MAKE-PROG1-CORRECT` now shows both `induct-term: (make-prog1-induction i n)` and `induction-rule: MAKE-PROG1-INDUCTION`
+- I also repaired the stale local Lake artifact-cache permissions that had been making plain `lake build` flaky on this machine; this was an environment fix, not a repo change, but it restored the expected baseline build check
+- I did not promote this slice to `main` yet because it still deepens the research-branch-only dynamic hint/proof-mode workflow rather than a surface already carried on `main`
+
+Next best ideas:
+
+1. start executing dynamic `use`, theory, induction, and clause-processor actions against Lean replay state instead of only surfacing them structurally
+2. chase the remaining theorem-locality gap for checkpoints/progress inside macro-generated ACL2 transcripts where helper subproofs can still share one prompt
+3. surface and normalize real dynamic `:cases` payloads once a corpus theorem emits them or another ACL2 path exposes them cleanly
