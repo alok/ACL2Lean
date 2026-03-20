@@ -607,3 +607,41 @@ Next best ideas:
 1. capture lifecycle lines such as `*1 ... is pushed for proof by induction`, `*1 is COMPLETED!`, and `Thus key checkpoint ... is COMPLETED!` as structured dynamic progress metadata instead of leaving them only inside checkpoint text blocks
 2. extend transcript-echo recovery beyond `:HINTS` to other proof-relevant directives ACL2 echoes in theorem-local forms when summary metadata is sparse
 3. start executing the accumulated dynamic replay actions against Lean goals, beginning with `use`, `expand`, split, disable-definition/theory adjustments, and typed-term-guided induction setup
+
+## 2026-03-19 Iteration 17
+
+Completed this iteration:
+
+- taught `scripts/acl2_hint_bridge.py` to turn ACL2 `Free` warnings into structured `bind-free-variable` actions that preserve the free variable, the searched hypothesis pattern, and the trigger term when ACL2 emits it
+- generalized `Non-rec` warning parsing beyond the old single-`:REWRITE` / single-symbol shape, so plural `function symbols ... have non-recursive definitions` output now yields one `disable-definition` action per suggested rune and `:LINEAR` warnings carry their rule class through the action summary
+- added focused bridge regressions for both `Free` warning variants plus singular/plural/non-`:REWRITE` `Non-rec` wording, and updated `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md` so the documented dynamic bridge surface matches the new warning-action coverage
+- tracked this slice in Linear as `ALOK-556`
+
+Verification:
+
+- research branch commit `9c3e8c7`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `9c3e8c7`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/die-hard-work.lisp --theorem INV-INITIAL-STATE | rg -n 'disable-definition|INV-INITIAL-STATE|INITIAL-STATE|DEFINITION INV'`
+- research branch commit `9c3e8c7`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/die-hard-work.lisp --theorem NATP-/-GCD-LITTLE-LEMMA | rg -n 'bind-free-variable|NONNEG-INT-MOD J GCD|free variable J'`
+- research branch commit `9c3e8c7`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp POSITIVE-FLOOR-LITTLE-LEMMA | sed -n '1,220p'`
+- research branch commit `9c3e8c7`: `lake build`
+- research branch commit `9c3e8c7`: `uv run python Verify.py`
+- pushed research branch commit `9c3e8c7` to `origin/autoresearch/mar19-acl2lean`
+- after the push, `gh run list --branch autoresearch/mar19-acl2lean --limit 4` showed GitHub Actions run `23328601450` completed `success`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- `INV-INITIAL-STATE` is now a concrete acceptance test for plural `Non-rec` extraction: one ACL2 warning about `INV` and `INITIAL-STATE` becomes two separate `disable-definition` actions instead of no structured guidance
+- `NATP-/-GCD-LITTLE-LEMMA` now reaches Lean with a typed `bind-free-variable` action that tells the replay layer exactly which free variable (`J`) and searched hypothesis pattern (`(EQUAL (NONNEG-INT-MOD J GCD) 0)`) ACL2 relied on
+- `POSITIVE-FLOOR-LITTLE-LEMMA` now shows both new warning families at once through the CLI: a `:LINEAR`-class `disable-definition` action for `(:DEFINITION FLOOR)` and a trigger-aware `bind-free-variable` action tied to `(FLOOR I GCD)`
+- this is a real advance on the hint-oracle path because the bridge now preserves more of ACL2's proof-search constraints as typed data instead of dropping them into raw warning prose, but I did not promote it to `main` yet because the dynamic action workflow still lives on the research branch
+
+Next best ideas:
+
+1. start executing the accumulated dynamic replay actions against Lean goals, beginning with `use`, `disable-definition`, `bind-free-variable`, split, and theory-adjustment steps
+2. capture lifecycle lines such as `*1 ... is pushed for proof by induction`, `*1 is COMPLETED!`, and `Thus key checkpoint ... is COMPLETED!` as structured dynamic progress metadata instead of leaving them only inside checkpoint text blocks
+3. extend warning parsing to other replay-relevant ACL2 guidance families once a real sample surfaces them, but keep execution of the already-extracted action set ahead of pure schema growth
