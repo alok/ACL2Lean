@@ -18,6 +18,7 @@ FAILED_MARKER = "******** FAILED ********"
 GOAL_LINE_RE = re.compile(r"^Goal(?:'+)?$")
 SUBGOAL_LINE_RE = re.compile(r"^Subgoal\b.+$")
 PROMPT_RE = re.compile(r"^[^()\s]+\s+!>+")
+PROMPT_PREFIX_RE = re.compile(r"^([^()\s]+\s+!>+)(.*)$")
 HINT_EVENT_RE = re.compile(r"^\(\s*:([A-Z0-9-]+)\s+(.+?)\)$", re.IGNORECASE)
 DISABLE_HINT_RE = re.compile(
     r"consider disabling\s+(\(.*?\))\s+in the hint provided for\s+([^.]+)\.",
@@ -46,6 +47,7 @@ NONREC_WARNING_RE = re.compile(
     re.IGNORECASE,
 )
 SPLITTER_RULE_RE = re.compile(r"^\s*([^:]+):\s*(.+?)\s*$")
+SPLITTER_ENTRY_RE = re.compile(r"^[^(\s:][^:]*:\s*.+$")
 
 
 def normalize_name(name: str) -> str:
@@ -54,6 +56,22 @@ def normalize_name(name: str) -> str:
 
 def inline_text(text: str) -> str:
     return " ".join(text.split())
+
+
+def normalize_transcript_lines(lines: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for raw_line in lines:
+        line = raw_line.rstrip("\n")
+        match = PROMPT_PREFIX_RE.match(line)
+        if match is None:
+            normalized.append(line)
+            continue
+        prompt, remainder = match.groups()
+        normalized.append(prompt)
+        remainder = remainder.lstrip()
+        if remainder:
+            normalized.append(remainder)
+    return normalized
 
 
 def make_action(
@@ -569,20 +587,117 @@ def summary_field(line: str) -> tuple[str, str] | None:
     return None
 
 
-def normalize_summary_entries(text: str) -> list[str]:
+def unwrap_outer_list(text: str) -> str:
+    stripped = text.strip()
+    if not stripped.startswith("(") or not stripped.endswith(")"):
+        return stripped
+
+    depth = 0
+    in_string = False
+    escape = False
+    for idx, char in enumerate(stripped):
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+            continue
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0 and idx != len(stripped) - 1:
+                return stripped
+
+    if depth != 0:
+        return stripped
+    return stripped[1:-1].strip()
+
+
+def split_top_level_entries(text: str) -> list[str]:
     stripped = text.strip()
     if not stripped or stripped == "NIL":
         return []
-    lines = [line.strip() for line in stripped.splitlines() if line.strip()]
-    if not lines:
+
+    body = unwrap_outer_list(stripped)
+    if not body:
         return []
-    first = lines[0]
-    if first.startswith("(("):
-        lines[0] = "(" + first[2:]
-    last = lines[-1]
-    if last.endswith("))"):
-        lines[-1] = last[:-2] + ")"
-    return lines
+
+    entries: list[str] = []
+    current: list[str] = []
+    depth = 0
+    in_string = False
+    escape = False
+
+    def flush() -> None:
+        entry = "".join(current).strip()
+        if entry:
+            entry = "\n".join(line.strip() for line in entry.splitlines() if line.strip())
+        if entry:
+            entries.append(entry)
+        current.clear()
+
+    for char in body:
+        if depth == 0 and not in_string and char.isspace():
+            flush()
+            continue
+
+        current.append(char)
+
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+            continue
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                flush()
+
+    flush()
+    return entries
+
+
+def normalize_summary_entries(text: str) -> list[str]:
+    return split_top_level_entries(text)
+
+
+def normalize_splitter_entries(text: str) -> list[str]:
+    stripped = text.strip()
+    if not stripped or stripped == "NIL":
+        return []
+
+    entries: list[str] = []
+    current: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        if not line.strip():
+            continue
+        trimmed = line.strip()
+        if current and SPLITTER_ENTRY_RE.match(trimmed):
+            entries.append("\n".join(current).strip())
+            current = [trimmed]
+            continue
+        current.append(trimmed)
+
+    if current:
+        entries.append("\n".join(current).strip())
+    return entries
 
 
 def parse_warning_kinds(text: str) -> list[str]:
@@ -621,7 +736,7 @@ def parse_summary(lines: list[str], theorem_name: str) -> dict[str, object]:
         elif current_field in {"summary_rules", "hint_events"}:
             summary[current_field] = normalize_summary_entries(text)
         elif current_field == "splitter_rules":
-            summary[current_field] = [line.strip() for line in text.splitlines() if line.strip()]
+            summary[current_field] = normalize_splitter_entries(text)
         elif current_field == "warning_kinds":
             summary[current_field] = parse_warning_kinds(text)
         elif current_field == "summary_time":
@@ -651,6 +766,7 @@ def parse_summary(lines: list[str], theorem_name: str) -> dict[str, object]:
 
 
 def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
+    lines = normalize_transcript_lines(lines)
     theorem_norm = normalize_name(theorem)
     all_matches: list[tuple[int, str]] = []
     for idx, line in enumerate(lines):

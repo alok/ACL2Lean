@@ -218,6 +218,54 @@ class HintBridgeParsingTests(unittest.TestCase):
             )
         )
 
+    def test_multiline_splitter_rules_stay_grouped(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>
+            Splitter note (see :DOC splitter) for Goal (3 subgoals).
+              if-intro: ((:DEFINITION NFIX)
+                         (:DEFINITION NONNEG-INT-GCD))
+
+            Subgoal 3
+            Subgoal 2
+            Subgoal 1
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM NONNEG-INT-GCD-0 ...)
+            Rules: NIL
+            Splitter rules (see :DOC splitter):
+              if-intro: ((:DEFINITION NFIX)
+                         (:DEFINITION NONNEG-INT-GCD))
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             NONNEG-INT-GCD-0
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "nonneg-int-gcd-0")
+        self.assertEqual(
+            artifact["splitter_rules"],
+            ["if-intro: ((:DEFINITION NFIX)\n(:DEFINITION NONNEG-INT-GCD))"],
+        )
+        self.assertEqual(
+            [
+                action
+                for action in artifact["actions"]
+                if action["kind"] == "split-goal"
+            ],
+            [
+                {
+                    "kind": "split-goal",
+                    "source": "splitter",
+                    "summary": "split using if-intro with ((:DEFINITION NFIX) (:DEFINITION NONNEG-INT-GCD))",
+                    "targets": ["if-intro", "((:DEFINITION NFIX) (:DEFINITION NONNEG-INT-GCD))"],
+                    "detail": "if-intro: ((:DEFINITION NFIX)\n(:DEFINITION NONNEG-INT-GCD))",
+                }
+            ],
+        )
+
     def test_observations_checkpoints_and_induction_blocks(self) -> None:
         transcript = dedent(
             """
@@ -316,6 +364,90 @@ class HintBridgeParsingTests(unittest.TestCase):
                 {"kind": "subgoal", "label": "Subgoal 2", "text": "Subgoal 2"},
                 {"kind": "subgoal", "label": "Subgoal 1.1''", "text": "Subgoal 1.1''"},
             ],
+        )
+
+    def test_prompt_adjacent_goal_lines_become_checkpoints(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>Goal'
+            Goal''
+            Goal'''    
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM RENAMING-HACK-LEMMA ...)
+            Rules: NIL
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             RENAMING-HACK-LEMMA
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "renaming-hack-lemma")
+        self.assertEqual(
+            artifact["checkpoints"],
+            [
+                {"kind": "goal", "label": "Goal'", "text": "Goal'"},
+                {"kind": "goal", "label": "Goal''", "text": "Goal''"},
+                {"kind": "goal", "label": "Goal'''", "text": "Goal'''"},
+            ],
+        )
+        self.assertEqual(artifact["raw_excerpt"][0], "ACL2 !>>")
+        self.assertEqual(artifact["raw_excerpt"][1], "Goal'")
+
+    def test_multiline_hint_events_stay_grouped_and_actionable(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM THEORY-GUIDANCE ...)
+            Rules: NIL
+            Hint-events: ((:IN-THEORY (DISABLE FLOOR
+                                       NONNEG-INT-GCD-IS-COMMON-DIVISOR))
+                          (:EXPAND (NONNEG-INT-GCD 0 Q))
+                          (:DO-NOT-INDUCT T))
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             THEORY-GUIDANCE
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "theory-guidance")
+        self.assertEqual(
+            artifact["hint_events"],
+            [
+                "(:IN-THEORY (DISABLE FLOOR\nNONNEG-INT-GCD-IS-COMMON-DIVISOR))",
+                "(:EXPAND (NONNEG-INT-GCD 0 Q))",
+                "(:DO-NOT-INDUCT T)",
+            ],
+        )
+        self.assertTrue(
+            any(
+                action["kind"] == "in-theory"
+                and action["summary"] == "adjust theory (DISABLE FLOOR NONNEG-INT-GCD-IS-COMMON-DIVISOR)"
+                and action["targets"] == ["(DISABLE FLOOR NONNEG-INT-GCD-IS-COMMON-DIVISOR)"]
+                for action in artifact["actions"]
+            )
+        )
+        self.assertTrue(
+            any(
+                action["kind"] == "expand"
+                and action["summary"] == "expand (NONNEG-INT-GCD 0 Q)"
+                and action["targets"] == ["(NONNEG-INT-GCD 0 Q)"]
+                for action in artifact["actions"]
+            )
+        )
+        self.assertTrue(
+            any(
+                action["kind"] == "do-not-induct"
+                and action["summary"] == "do-not-induct T"
+                and action["targets"] == ["T"]
+                for action in artifact["actions"]
+            )
         )
 
     def test_theorem_section_stays_local_with_multiple_summaries_in_one_prompt(self) -> None:
