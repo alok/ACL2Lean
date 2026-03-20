@@ -153,6 +153,53 @@ class HintBridgeParsingTests(unittest.TestCase):
             },
         )
 
+    def test_use_warning_with_multiple_rules_splits_actions(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>
+            ACL2 Warning [Use] in ( DEFTHM LEMMA-5-D ...):  It is unusual to :USE
+            the formula of an enabled :REWRITE or :DEFINITION rule, so you may
+            want to consider disabling (:REWRITE LEMMA-5-A) and (:REWRITE LEMMA-5-C)
+            in the hint provided for Goal.  See :DOC using-enabled-rules.
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM LEMMA-5-D ...)
+            Rules: NIL
+            Warnings:  Use
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             LEMMA-5-D
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "lemma-5-d")
+        warning_uses = {
+            tuple(action["targets"])
+            for action in artifact["actions"]
+            if action["kind"] == "use" and action["source"] == "warning"
+        }
+        disable_targets = {
+            tuple(action["targets"])
+            for action in artifact["actions"]
+            if action["kind"] == "disable-rule"
+        }
+        self.assertEqual(
+            warning_uses,
+            {
+                ("LEMMA-5-A", "Goal"),
+                ("LEMMA-5-C", "Goal"),
+            },
+        )
+        self.assertEqual(
+            disable_targets,
+            {
+                ("(:REWRITE LEMMA-5-A)", "Goal"),
+                ("(:REWRITE LEMMA-5-C)", "Goal"),
+            },
+        )
+
     def test_subsume_warnings_become_overlap_actions(self) -> None:
         transcript = dedent(
             """

@@ -22,7 +22,7 @@ PROMPT_PREFIX_RE = re.compile(r"^([^()\s]+\s+!>+)(.*)$")
 HINT_EVENT_RE = re.compile(r"^\(\s*:([A-Z0-9-]+)\s+(.+?)\)$", re.IGNORECASE)
 RULE_RUNE_RE = re.compile(r"^\(\s*:([A-Z0-9-]+)\s+(.+?)\s*\)$", re.IGNORECASE)
 DISABLE_HINT_RE = re.compile(
-    r"consider disabling\s+(\(.*?\))\s+in the hint provided for\s+([^.]+)\.",
+    r"consider disabling\s+(?P<rules>.+?)\s+in the hint provided for\s+(?P<goal>[^.]+)\.",
     re.IGNORECASE,
 )
 ACL2_RULE_NAME_PATTERN = r"(?:\|[^|]+\||[^\s,]+)"
@@ -196,6 +196,58 @@ def split_acl2_symbol_list(text: str) -> list[str]:
 def split_acl2_rule_names(text: str) -> list[str]:
     normalized = re.sub(r"\s+and\s+", ",", text.strip(), flags=re.IGNORECASE)
     return [match.strip().strip(".,") for match in ACL2_RULE_NAME_RE.findall(normalized)]
+
+
+def extract_parenthesized_forms(text: str) -> list[str]:
+    forms: list[str] = []
+    current: list[str] = []
+    depth = 0
+    in_string = False
+    escape = False
+
+    for char in text:
+        if depth == 0:
+            if char != "(":
+                continue
+            current = ["("]
+            depth = 1
+            in_string = False
+            escape = False
+            continue
+
+        current.append(char)
+
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+            continue
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                form = "".join(current).strip()
+                if form:
+                    forms.append(form)
+                current = []
+
+    return forms
+
+
+def split_disable_hint_rules(text: str) -> list[str]:
+    forms = extract_parenthesized_forms(text)
+    if forms:
+        return forms
+    stripped = text.strip()
+    return [stripped] if stripped else []
 
 
 def nonrec_action_summary(rule_class: str, theorem_name: str, definition_rune: str) -> str:
@@ -808,45 +860,46 @@ def extract_warning_actions(warnings: list[str]) -> list[dict[str, object]]:
         warning_text = inline_text(warning)
         disable_match = DISABLE_HINT_RE.search(warning_text)
         if disable_match:
-            rule = disable_match.group(1).strip()
-            goal = disable_match.group(2).strip()
-            rune_match = RULE_RUNE_RE.match(rule)
-            if ":use" in warning_text.lower():
-                if rune_match:
-                    rule_class = rune_match.group(1).lower()
-                    rule_target = rune_match.group(2).strip()
-                    if rule_class == "rewrite":
-                        use_summary = f"use {rule_target} in {goal}"
-                        use_targets = [rule_target, goal]
-                    elif rule_class == "definition":
-                        use_summary = f"use definition {rule_target} in {goal}"
-                        use_targets = [rule_target, goal]
+            rules = split_disable_hint_rules(disable_match.group("rules"))
+            goal = disable_match.group("goal").strip()
+            for rule in rules:
+                rune_match = RULE_RUNE_RE.match(rule)
+                if ":use" in warning_text.lower():
+                    if rune_match:
+                        rule_class = rune_match.group(1).lower()
+                        rule_target = rune_match.group(2).strip()
+                        if rule_class == "rewrite":
+                            use_summary = f"use {rule_target} in {goal}"
+                            use_targets = [rule_target, goal]
+                        elif rule_class == "definition":
+                            use_summary = f"use definition {rule_target} in {goal}"
+                            use_targets = [rule_target, goal]
+                        else:
+                            use_summary = f"use {rule} in {goal}"
+                            use_targets = [rule, goal]
                     else:
                         use_summary = f"use {rule} in {goal}"
                         use_targets = [rule, goal]
-                else:
-                    use_summary = f"use {rule} in {goal}"
-                    use_targets = [rule, goal]
+                    actions.append(
+                        make_action(
+                            "use",
+                            "warning",
+                            use_summary,
+                            warning,
+                            targets=use_targets,
+                            goal_target=goal,
+                        )
+                    )
                 actions.append(
                     make_action(
-                        "use",
+                        "disable-rule",
                         "warning",
-                        use_summary,
+                        f"disable {rule} in {goal}",
                         warning,
-                        targets=use_targets,
+                        targets=[rule, goal],
                         goal_target=goal,
                     )
                 )
-            actions.append(
-                make_action(
-                    "disable-rule",
-                    "warning",
-                    f"disable {rule} in {goal}",
-                    warning,
-                    targets=[rule, goal],
-                    goal_target=goal,
-                )
-            )
 
         subsume_match = SUBSUME_NEW_OVER_OLD_RE.search(warning_text)
         if subsume_match:
