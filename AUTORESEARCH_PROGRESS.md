@@ -1351,3 +1351,46 @@ Next best ideas:
 1. fold the normalized summary rules into replay-state or a dedicated active-rune model instead of leaving them only in CLI/proof-mode display surfaces
 2. use the parsed summary-rule kinds plus the existing theory timeline to infer which ACL2 rune classes should map to Lean simp lemmas versus grind hints
 3. start executing the now-structured oracle data against Lean goals, beginning with simple `use`, theory-disable, and splitter-guided replay steps
+
+## 2026-03-20 Iteration 35
+
+Completed this iteration:
+
+- added a Lean-side `DynamicRuneProfile` in `ACL2Lean.HintBridge` that groups dynamic ACL2 `Rules:` summaries by ACL2 rule class instead of leaving them as flat `summary-rule ...` strings
+- taught that rune-profile layer to accumulate concrete theory guidance from parsed dynamic `:IN-THEORY`, `disable-rule`, and `disable-definition` actions, while still preserving opaque theory combinator context when ACL2 does not expose a direct enable/disable delta
+- derived heuristic `lean-simp-candidates` and `lean-grind-candidates` from the rune profile so the dynamic hint path now exposes a compact replay-facing bridge toward Lean configuration rather than only display text
+- updated `acl2lean hints` to print a new `rune-profile:` block on real theorem-local artifacts, and updated `ACL2Lean.ProofMode` to consume `runeProfile` in the rune pane, notes, and next-move suggestions instead of reusing flat `summary-rule` / `theory-step` strings
+- added Lean guard coverage for rune-profile interpretation and updated `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md` to document the new state model
+- tracked the slice in Linear as `ALOK-575`
+
+Verification:
+
+- research branch commit `3c5fbbe`: `lake build ACL2Lean.HintBridge`
+- research branch commit `3c5fbbe`: `lake build ACL2Lean.ProofMode Main`
+- research branch commit `3c5fbbe`: `lake build acl2lean`
+- research branch commit `3c5fbbe`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-log2.lisp nbr-calls-flog2-is-logarithmic | sed -n '1,120p'`
+- research branch commit `3c5fbbe`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp 'mod-+-*-floor-gcd' | sed -n '1,160p'`
+- research branch commit `3c5fbbe`: `./.lake/build/bin/acl2lean hints acl2_samples/apply-model-apply.lisp 'ev$-def-fact' | sed -n '1,150p'`
+- research branch commit `3c5fbbe`: `lake build`
+- research branch commit `3c5fbbe`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `3c5fbbe`: `uv run python Verify.py`
+- pushed research branch commit `3c5fbbe` to `origin/autoresearch/mar19-acl2lean`
+- research branch commit `3c5fbbe`: `lake exe acl2lean ci autoresearch/mar19-acl2lean` reported fresh GitHub Actions run `23335965119` in progress
+- `gh run watch 23335965119 --exit-status` succeeded for GitHub Actions run `23335965119`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- this is the first dynamic-hint slice that interprets ACL2 rule usage and theory adjustments into a compact Lean-side rune state instead of leaving them as disconnected display strings
+- real `2009-log2`, `die-hard`, and `apply-model` artifacts now show `rune-profile:` sections with ACL2 rule-class buckets, theory enables/disables, and heuristic `lean-simp-candidates` / `lean-grind-candidates`
+- I did not promote this slice to `main` yet because it still deepens the research-branch dynamic proof-mode stack; the cleaner promotion boundary remains “first checked replay step that consumes the dynamic oracle state” rather than another display-only improvement
+
+Next best ideas:
+
+1. execute `runeProfile` plus `replayState.useTimeline` against real Lean goals, starting with theory disables and simple theorem/instance `use` steps
+2. thread `runeProfile`'s `lean-simp-candidates` / `lean-grind-candidates` into actual Lean replay configuration instead of only surfacing them in the CLI and proof-mode notes
+3. decide whether the dynamic hint stack from extraction through `runeProfile` is now coherent enough for a mainline promotion batch once one checked replay action lands
