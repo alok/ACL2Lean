@@ -867,3 +867,43 @@ Next best ideas:
 1. start executing checkpoint-local `disable-definition`, `use`, and `in-theory` actions against Lean replay state so the recovered oracle guidance affects checked replay instead of only display
 2. scan for any other real ACL2 warning families that still surface only as `warning-kinds` or raw text, especially trigger-oriented advice outside the current rewrite/linear patterns
 3. decide when the recent dynamic hint-bridge slices are coherent enough to promote together to `main` as one stable replay-infrastructure batch
+
+## 2026-03-19 Iteration 24
+
+Completed this iteration:
+
+- taught `scripts/acl2_hint_bridge.py` to recover ACL2's combined `Free`/`Non-rec` warning shape from `2009-tri-sq`, where ACL2 says the searched-for free-variable hypothesis mentions a non-recursive function symbol and that disabling the definition is necessary for the search to succeed
+- threaded earlier `Free` warning context through the warning pass so the new `disable-definition` action can retain the searched hypothesis, yielding Lean-visible guidance like `disable (:DEFINITION POSP) so free-variable search for Y via (POSP Y) can succeed in LEMMA-2`
+- generalized `Subsume` warning parsing to accept ACL2 quoted rune names such as `|(+ y x)|` and plural prior-rule lists such as `|(* x (+ y z))|, |(* (* x y) z)| and |(* y x)|`, emitting one `watch-rune-overlap` action per cited existing rule
+- added focused parser regressions for the combined free/non-rec warning, a quoted single-rule subsume warning, and a plural quoted-rule subsume warning, and updated `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md` so the documented bridge surface matches the new warning coverage
+- tracked this slice in Linear as `ALOK-563`
+
+Verification:
+
+- research branch commit `19877c4`: `PYTHONPATH=scripts uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `19877c4`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/2009-tri-sq.lisp --theorem 'Lemma-2' | rg -n 'free-variable search|LEMMA-2-N|disable \\(:DEFINITION POSP\\)'`
+- research branch commit `19877c4`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/2009-tri-sq.lisp --theorem 'Lemma-3' | rg -n 'free-variable search|watch-rune-overlap|\\|\\(\\* x \\(\\+ y z\\)\\)\\||\\|\\(\\* y x\\)\\|'`
+- research branch commit `19877c4`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/2009-tri-sq.lisp --theorem 'Lemma-4' | rg -n '\\|\\(\\+ y x\\)\\||watch-rune-overlap|compare generated rewrite'`
+- research branch commit `19877c4`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-tri-sq.lisp Lemma-2 | rg -n 'free-variable search|LEMMA-2-N|disable \\(:DEFINITION POSP\\)'`
+- research branch commit `19877c4`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-tri-sq.lisp Lemma-4 | rg -n '\\|\\(\\+ y x\\)\\||watch-rune-overlap|compare generated rewrite'`
+- research branch commit `19877c4`: `lake build`
+- research branch commit `19877c4`: `uv run python Verify.py`
+- pushed research branch commit `19877c4` to `origin/autoresearch/mar19-acl2lean`
+- `gh run watch 23330667126 --exit-status` succeeded for GitHub Actions run `23330667126`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- on a real `2009-tri-sq` scan, the number of warning blocks with no structured warning action dropped from 26 to 2, and the remaining two are dedup-equivalent subsume warnings rather than still-unparsed guidance
+- this is a real hint-generator-path advance because Lean now sees more of ACL2's theorem-local theory advice from the oracle, especially when ACL2 ties free-variable instantiation success to disabling a non-recursive definition or when it names quoted/plural overlap runes that were previously lost
+- I did not promote this slice to `main` yet because it still extends the research-branch-only dynamic hint/action workflow rather than a surface already carried on `main`
+
+Next best ideas:
+
+1. start executing checkpoint-local `disable-definition`, `use`, and `in-theory` actions against Lean replay state so the newly recovered warning guidance affects checked replay instead of only display
+2. decide whether action deduplication should preserve multiple ACL2 warning provenance entries when the resulting replay action is identical, so warning counts stay faithful without reintroducing flat duplicate actions
+3. keep scanning real ACL2 books for any remaining warning families that still survive only as `warning-kinds` or raw text, especially outside the already covered `Free` / `Non-rec` / `Subsume` / `Use` families
