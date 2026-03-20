@@ -455,3 +455,42 @@ Next best ideas:
 1. execute the new dynamic replay actions against real Lean goals, starting with `use`, disable-rule/theory adjustments, and induction candidates
 2. replace the hardcoded Python sample-resolution table with data-driven upstream-source metadata so dynamic fallback remains maintainable as the corpus grows
 3. parse additional dynamic ACL2 guidance such as `Double-rewrite`, richer `:in-theory` hint-events, and other warning forms into typed Lean-side actions
+
+## 2026-03-19 Iteration 13
+
+Completed this iteration:
+
+- extended `scripts/acl2_hint_bridge.py` so theorem-local dynamic actions now also cover ACL2 splitter notes and `Non-rec` warnings instead of leaving both as display-only text
+- taught the bridge to turn summary-time splitter guidance like `if-intro: ((:DEFINITION GCD-PROG!))` into typed `split-goal` actions and to turn `Non-rec` warnings into typed `disable-definition` actions that preserve the suggested definition rune
+- added parser regression coverage for both new action families and updated the README / ACL2 spec / proof-mode notes so the documented dynamic bridge surface matches the richer action extraction
+- tracked this slice in Linear as `ALOK-552`
+
+Verification:
+
+- research branch commit `b2647a3`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `b2647a3`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/die-hard-work.lisp --theorem next-unique`
+- research branch commit `b2647a3`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/die-hard-work.lisp --theorem exists-gcd-prog`
+- research branch commit `b2647a3`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp next-unique | sed -n '1,220p'`
+- research branch commit `b2647a3`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp exists-gcd-prog | sed -n '1,260p'`
+- research branch commit `b2647a3`: `LAKE_NO_CACHE=1 lake build ACL2Lean.HintBridge ACL2Lean.ProofMode Main`
+- research branch commit `b2647a3`: `LAKE_NO_CACHE=1 lake build`
+- research branch commit `b2647a3`: `uv run python Verify.py`
+- pushed research branch commit `b2647a3` to `origin/autoresearch/mar19-acl2lean`
+- after the push, `gh run list --branch autoresearch/mar19-acl2lean --limit 8` showed GitHub Actions run `23327539592` for `Capture splitter and Non-rec hint actions` as `in_progress`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- `next-unique` now reaches Lean with ACL2’s theory advice preserved as a typed `disable-definition` action for `(:DEFINITION NEXT)` rather than only a prose `Non-rec` warning
+- `exists-gcd-prog` now surfaces both the ACL2 splitter note and the matching non-recursive-definition advice as typed candidate replay actions, which is the first time the dynamic bridge has carried split guidance from ACL2 into the Lean-visible action layer
+- I did not promote this slice to `main` yet because it extends the still-research-only dynamic hint/action workflow instead of a mainline-supported surface
+
+Next best ideas:
+
+1. parse richer dynamic theory guidance such as emitted `:in-theory`, `:expand`, and `:do-not-induct` hint-events into structured Lean-side actions instead of flat strings
+2. execute the accumulated dynamic replay actions against real Lean goals, starting with `use`, split, and disable-definition/theory adjustments
+3. replace the Python-side hardcoded sample-resolution table with data-driven upstream-source metadata so broader theorem-local dynamic extraction stays maintainable
