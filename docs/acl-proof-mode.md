@@ -12,7 +12,7 @@ The immediate design split is:
 
 The importer now preserves structured `defthm` metadata (`:hints`, `:instructions`, `:rule-classes`) plus top-level `in-theory` events, and `#acl_imported_panel "<book>" "<theorem>"` now turns that imported data into a real infoview snapshot. Nested theory combinators such as `union-theories`, `set-difference-theories`, `current-theory`, and `function-theory` are now decomposed into readable structure in the CLI, translated Lean comments, and the proof-mode rune pane instead of surfacing as opaque raw ACL2 text. The panel is still showing replay plans rather than checked replay state, but it is no longer limited to a hand-written demo snapshot.
 
-There is now also a dynamic extraction seam: `scripts/acl2_hint_bridge.py` runs the ACL2 binary on a target book and theorem, recovers theorem-local checkpoints / warnings / induction suggestions from ACL2's own output, and `ACL2Lean/HintBridge.lean` parses that data back into Lean. `#acl_hint_panel "<book>" "<theorem>"` renders those emitted hints in the infoview, and `acl2lean hints <book> <theorem>` exposes the same bridge at the CLI. The bridge now also promotes raw `Goal'` / `Subgoal ...` trace lines into structured checkpoints, which keeps lightweight ACL2 progress markers visible even when ACL2 does not emit a full key-checkpoint block, and it now trims transcript slices to the target theorem's own summary block so neighboring generated theorems in large `encapsulate` runs stop polluting the panel.
+There is now also a dynamic extraction seam: `scripts/acl2_hint_bridge.py` runs the ACL2 binary on a target book and theorem, recovers theorem-local checkpoints / warnings / induction suggestions from ACL2's own output, and `ACL2Lean/HintBridge.lean` parses that data back into Lean. `#acl_hint_panel "<book>" "<theorem>"` renders those emitted hints in the infoview, and `acl2lean hints <book> <theorem>` exposes the same bridge at the CLI. The bridge now also promotes raw `Goal'` / `Subgoal ...` trace lines into structured checkpoints, trims transcript slices to the target theorem's own summary block so neighboring generated theorems in large `encapsulate` runs stop polluting the panel, and turns dynamic `:USE` hint-events, disable advice, rewrite-rule overlap warnings, and induction choices into typed candidate replay actions.
 
 ## Current setup
 
@@ -91,7 +91,7 @@ The notable short-term takeaway is that later ACL arithmetic work should lean on
 
 ## Near-term next steps
 
-1. Replace the imported panel's planned checkpoints with actual replay state, not just imported instructions and hints.
-2. Add a compact rune timeline and selected induction variable to the widget.
-3. Prototype a small `ACL2.Grind` helper module that wraps `mkGoal`, `simpIgnoringNoProgress`, `internalizeAll`, and `Goal.grind` for ACL-style checkpointed proofs.
-4. Revisit evaluator arithmetic with `Sym`/`grind` expectations in mind, especially around rationals and casts.
+1. Execute the new dynamic replay actions against real Lean goals instead of only surfacing them in the panel and CLI.
+2. Replace the imported panel's planned checkpoints with actual replay state, not just imported instructions and hints.
+3. Add a compact rune timeline and selected induction variable to the widget.
+4. Prototype a small `ACL2.Grind` helper module that wraps `mkGoal`, `simpIgnoringNoProgress`, `internalizeAll`, and `Goal.grind` for ACL-style checkpointed proofs.

@@ -83,6 +83,71 @@ class HintBridgeParsingTests(unittest.TestCase):
         self.assertEqual(artifact["hint_events"], ["(:USE NBR-CALLS-FLOG2-UPPER-BOUND)"])
         self.assertEqual(artifact["warning_kinds"], ["Use", "Subsume"])
         self.assertIn("consider disabling", artifact["warnings"][0])
+        self.assertTrue(
+            any(
+                action["kind"] == "use"
+                and action["summary"] == "use NBR-CALLS-FLOG2-UPPER-BOUND"
+                and action["targets"] == ["NBR-CALLS-FLOG2-UPPER-BOUND"]
+                for action in artifact["actions"]
+            )
+        )
+        self.assertTrue(
+            any(
+                action["kind"] == "disable-rule"
+                and action["summary"] == "disable (:REWRITE NBR-CALLS-FLOG2-UPPER-BOUND) in Goal"
+                and action["targets"] == ["(:REWRITE NBR-CALLS-FLOG2-UPPER-BOUND)", "Goal"]
+                for action in artifact["actions"]
+            )
+        )
+
+    def test_subsume_warnings_become_overlap_actions(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>
+            ACL2 Warning [Subsume] in ( DEFTHM NBR-CALLS-FLOG2-IS-LOGARITHMIC ...):
+            A newly proposed :REWRITE rule generated from NBR-CALLS-FLOG2-IS-LOGARITHMIC
+            probably subsumes the previously added :REWRITE rule
+            NBR-CALLS-FLOG2-LOWER-BOUND, in the sense that the new rule will now
+            probably be applied whenever the old rule would have been.
+
+            ACL2 Warning [Subsume] in ( DEFTHM NBR-CALLS-FLOG2-IS-LOGARITHMIC ...):
+            The previously added rule NBR-CALLS-FLOG2-LOWER-BOUND subsumes a newly
+            proposed :REWRITE rule generated from NBR-CALLS-FLOG2-IS-LOGARITHMIC,
+            in the sense that the old rule rewrites a more general target.
+
+            ACL2 Warning [Subsume] in ( DEFTHM NBR-CALLS-FLOG2-IS-LOGARITHMIC ...):
+            A newly proposed :REWRITE rule generated from NBR-CALLS-FLOG2-IS-LOGARITHMIC
+            probably subsumes the previously added :REWRITE rule
+            NBR-CALLS-FLOG2-UPPER-BOUND, in the sense that the new rule will now
+            probably be applied whenever the old rule would have been.
+
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM NBR-CALLS-FLOG2-IS-LOGARITHMIC ...)
+            Rules: NIL
+            Warnings:  Subsume
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             NBR-CALLS-FLOG2-IS-LOGARITHMIC
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "nbr-calls-flog2-is-logarithmic")
+        overlap_targets = {
+            tuple(action["targets"])
+            for action in artifact["actions"]
+            if action["kind"] == "watch-rune-overlap"
+        }
+        self.assertEqual(
+            overlap_targets,
+            {
+                ("NBR-CALLS-FLOG2-IS-LOGARITHMIC", "NBR-CALLS-FLOG2-LOWER-BOUND"),
+                ("NBR-CALLS-FLOG2-IS-LOGARITHMIC", "NBR-CALLS-FLOG2-UPPER-BOUND"),
+            },
+        )
 
     def test_observations_checkpoints_and_induction_blocks(self) -> None:
         transcript = dedent(
@@ -135,6 +200,14 @@ class HintBridgeParsingTests(unittest.TestCase):
         self.assertEqual(artifact["checkpoints"][1]["label"], "Subgoal *1/8")
         self.assertEqual(len(artifact["inductions"]), 1)
         self.assertIn(":induction rule CLOG2", artifact["inductions"][0])
+        self.assertTrue(
+            any(
+                action["kind"] == "induct"
+                and action["summary"] == "induct on (CLOG2 N) using rule CLOG2"
+                and action["targets"] == ["(CLOG2 N)", "CLOG2"]
+                for action in artifact["actions"]
+            )
+        )
 
     def test_raw_goal_and_subgoal_lines_become_checkpoints(self) -> None:
         transcript = dedent(

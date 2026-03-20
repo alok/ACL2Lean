@@ -18,10 +18,67 @@ FAILED_MARKER = "******** FAILED ********"
 GOAL_LINE_RE = re.compile(r"^Goal(?:'+)?$")
 SUBGOAL_LINE_RE = re.compile(r"^Subgoal\b.+$")
 PROMPT_RE = re.compile(r"^[^()\s]+\s+!>+")
+HINT_EVENT_RE = re.compile(r"^\(\s*:([A-Z0-9-]+)\s+(.+?)\)$", re.IGNORECASE)
+DISABLE_HINT_RE = re.compile(
+    r"consider disabling\s+(\(.*?\))\s+in the hint provided for\s+([^.]+)\.",
+    re.IGNORECASE,
+)
+SUBSUME_NEW_OVER_OLD_RE = re.compile(
+    r"generated from\s+([^\s,]+)\s+probably subsumes the previously added\s+:REWRITE rule\s+([^\s,]+)",
+    re.IGNORECASE,
+)
+SUBSUME_OLD_OVER_NEW_RE = re.compile(
+    r"previously added rule\s+([^\s,]+)\s+subsumes a newly proposed\s+:REWRITE rule generated from\s+([^\s,]+)",
+    re.IGNORECASE,
+)
+INDUCTION_TERM_RE = re.compile(
+    r"We will induct according to a scheme suggested by\s+(.+?)\.",
+    re.IGNORECASE,
+)
+INDUCTION_RULE_RE = re.compile(r":induction rule\s+([^\s.]+)", re.IGNORECASE)
 
 
 def normalize_name(name: str) -> str:
     return name.strip().lower()
+
+
+def inline_text(text: str) -> str:
+    return " ".join(text.split())
+
+
+def make_action(
+    kind: str,
+    source: str,
+    summary: str,
+    detail: str,
+    *,
+    targets: list[str] | None = None,
+) -> dict[str, object]:
+    return {
+        "kind": kind,
+        "source": source,
+        "summary": summary,
+        "targets": targets or [],
+        "detail": detail,
+    }
+
+
+def dedup_actions(actions: list[dict[str, object]]) -> list[dict[str, object]]:
+    deduped: list[dict[str, object]] = []
+    seen: set[tuple[str, str, str, tuple[str, ...]]] = set()
+    for action in actions:
+        targets = tuple(str(target) for target in action.get("targets", []))
+        key = (
+            str(action.get("kind", "")),
+            str(action.get("source", "")),
+            str(action.get("summary", "")),
+            targets,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(action)
+    return deduped
 
 
 @dataclass(frozen=True)
@@ -322,6 +379,102 @@ def collect_induction_blocks(lines: list[str]) -> list[str]:
     return blocks
 
 
+def parse_hint_event_action(event: str) -> dict[str, object]:
+    event_text = inline_text(event)
+    match = HINT_EVENT_RE.match(event_text)
+    if match is None:
+        return make_action("hint-event", "hint-event", event_text, event)
+
+    keyword = match.group(1).lower()
+    payload = inline_text(match.group(2))
+    targets = [payload] if payload else []
+    if keyword == "use":
+        return make_action("use", "hint-event", f"use {payload}", event, targets=targets)
+    if keyword == "in-theory":
+        return make_action("in-theory", "hint-event", f"adjust theory {payload}", event, targets=targets)
+    if keyword == "cases":
+        return make_action("cases", "hint-event", f"split cases {payload}", event, targets=targets)
+    return make_action(keyword, "hint-event", f"{keyword} {payload}".strip(), event, targets=targets)
+
+
+def extract_warning_actions(warnings: list[str]) -> list[dict[str, object]]:
+    actions: list[dict[str, object]] = []
+    for warning in warnings:
+        warning_text = inline_text(warning)
+        disable_match = DISABLE_HINT_RE.search(warning_text)
+        if disable_match:
+            rule = disable_match.group(1).strip()
+            goal = disable_match.group(2).strip()
+            actions.append(
+                make_action(
+                    "disable-rule",
+                    "warning",
+                    f"disable {rule} in {goal}",
+                    warning,
+                    targets=[rule, goal],
+                )
+            )
+
+        subsume_match = SUBSUME_NEW_OVER_OLD_RE.search(warning_text)
+        if subsume_match:
+            theorem_name, rule_name = subsume_match.groups()
+            actions.append(
+                make_action(
+                    "watch-rune-overlap",
+                    "warning",
+                    f"compare generated rewrite from {theorem_name} with existing rewrite {rule_name}",
+                    warning,
+                    targets=[theorem_name, rule_name],
+                )
+            )
+            continue
+
+        subsume_match = SUBSUME_OLD_OVER_NEW_RE.search(warning_text)
+        if subsume_match:
+            rule_name, theorem_name = subsume_match.groups()
+            actions.append(
+                make_action(
+                    "watch-rune-overlap",
+                    "warning",
+                    f"compare generated rewrite from {theorem_name} with existing rewrite {rule_name}",
+                    warning,
+                    targets=[theorem_name, rule_name],
+                )
+            )
+    return actions
+
+
+def extract_induction_actions(inductions: list[str]) -> list[dict[str, object]]:
+    actions: list[dict[str, object]] = []
+    for induction in inductions:
+        induction_text = inline_text(induction)
+        term_match = INDUCTION_TERM_RE.search(induction_text)
+        rule_match = INDUCTION_RULE_RE.search(induction_text)
+        term = term_match.group(1).strip() if term_match else ""
+        rule = rule_match.group(1).strip() if rule_match else ""
+        targets = [target for target in (term, rule) if target]
+        summary = "consider ACL2's induction scheme"
+        if term and rule:
+            summary = f"induct on {term} using rule {rule}"
+        elif term:
+            summary = f"induct on {term}"
+        elif rule:
+            summary = f"induct using rule {rule}"
+        actions.append(make_action("induct", "induction", summary, induction, targets=targets))
+    return actions
+
+
+def collect_actions(
+    hint_events: list[str],
+    warnings: list[str],
+    inductions: list[str],
+) -> list[dict[str, object]]:
+    actions = [parse_hint_event_action(event) for event in hint_events]
+    actions.extend(extract_warning_actions(warnings))
+    actions.extend(extract_induction_actions(inductions))
+    return dedup_actions(actions)
+
+
 def detect_acl2_failure(lines: list[str]) -> str | None:
     for line in lines:
         stripped = line.strip()
@@ -458,6 +611,7 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
             "warning_kinds": [],
             "summary_time": "",
             "prover_steps": None,
+            "actions": [],
             "checkpoints": [],
             "observations": [],
             "warnings": [],
@@ -468,6 +622,10 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
     idx, theorem_name = all_matches[target_match_idx]
     excerpt = theorem_excerpt(lines, all_matches, target_match_idx)
     summary = parse_summary(excerpt, theorem_name)
+    observations = collect_prefixed_blocks(excerpt, "ACL2 Observation")
+    warnings = collect_prefixed_blocks(excerpt, "ACL2 Warning")
+    inductions = collect_induction_blocks(excerpt)
+    explicit_checkpoints = collect_checkpoint_blocks(excerpt)
 
     return {
         "status": "proved",
@@ -480,14 +638,15 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
         "warning_kinds": summary["warning_kinds"],
         "summary_time": summary["summary_time"],
         "prover_steps": summary["prover_steps"],
+        "actions": collect_actions(summary["hint_events"], warnings, inductions),
         "checkpoints": (
             lambda explicit: explicit + collect_trace_checkpoints(
                 excerpt, {checkpoint["label"] for checkpoint in explicit}
             )
-        )(collect_checkpoint_blocks(excerpt)),
-        "observations": collect_prefixed_blocks(excerpt, "ACL2 Observation"),
-        "warnings": collect_prefixed_blocks(excerpt, "ACL2 Warning"),
-        "inductions": collect_induction_blocks(excerpt),
+        )(explicit_checkpoints),
+        "observations": observations,
+        "warnings": warnings,
+        "inductions": inductions,
         "raw_excerpt": excerpt,
     }
 

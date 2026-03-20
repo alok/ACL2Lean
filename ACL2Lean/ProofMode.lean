@@ -161,8 +161,8 @@ private def dynamicContextCheckpoint (artifact : ACL2.HintBridge.DynamicArtifact
       0
   let traceCheckpointCount := artifact.checkpoints.length - keyCheckpointCount
   { title := "Dynamic ACL2 hint extraction"
-    detail := s!"Recovered {keyCheckpointCount} key checkpoints, {traceCheckpointCount} raw goal/subgoal markers, {artifact.observations.length} observations, {artifact.warnings.length} warnings, {artifact.inductions.length} induction summaries, {artifact.summary_rules.length} summary rules, and {artifact.hint_events.length} hint-events from the ACL2 proof run."
-    status := if artifact.checkpoints.isEmpty then "planned" else "done" }
+    detail := s!"Recovered {keyCheckpointCount} key checkpoints, {traceCheckpointCount} raw goal/subgoal markers, {artifact.actions.length} candidate replay actions, {artifact.observations.length} observations, {artifact.warnings.length} warnings, {artifact.inductions.length} induction summaries, {artifact.summary_rules.length} summary rules, and {artifact.hint_events.length} hint-events from the ACL2 proof run."
+    status := if artifact.checkpoints.isEmpty && artifact.actions.isEmpty then "planned" else "done" }
 
 private def dynamicCheckpointTitle (idx : Nat) (checkpoint : ACL2.HintBridge.DynamicCheckpoint) : String :=
   match checkpoint.kind with
@@ -198,8 +198,20 @@ private def dynamicRunes (artifact : ACL2.HintBridge.DynamicArtifact) : List Str
       (artifact.splitter_rules.map (fun rule => s!"splitter {rule}")) ++
       (artifact.warning_kinds.map (fun kind => s!"warning-kind {kind}"))
 
+private def actionSummary (action : ACL2.HintBridge.DynamicAction) : String :=
+  s!"ACL2 suggests: {action.summary}"
+
+private def actionNote (action : ACL2.HintBridge.DynamicAction) : String :=
+  let targets :=
+    if action.targets.isEmpty then
+      ""
+    else
+      s!" [{String.intercalate ", " action.targets}]"
+  s!"action {action.source}/{action.kind}: {action.summary}{targets}"
+
 private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
   dedupStrings <|
+    (artifact.actions.map actionSummary) ++
     [ if artifact.summary_rules.isEmpty then
         some "ACL2 did not report summary rules for this theorem; extend the parser or pick a theorem whose proof emits replay-relevant rule usage."
       else
@@ -229,6 +241,7 @@ private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.Dynam
     , s!"Requested theorem: {artifact.requested_theorem}"
     , s!"ACL2 matched theorem: {artifact.theorem_name}"
     , s!"Extraction status: {artifact.status}"
+    , s!"Structured ACL2 actions: {artifact.actions.length}"
     ] ++
       (if artifact.load_note.isEmpty then [] else [s!"Load plan: {artifact.load_note}"]) ++
       (if artifact.load_steps.length ≤ 1 then
@@ -239,6 +252,7 @@ private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.Dynam
       (match artifact.prover_steps with
         | some steps => [s!"ACL2 prover steps: {steps}"]
         | none => []) ++
+      (artifact.actions.map actionNote) ++
       (if artifact.observations.isEmpty then [] else artifact.observations.map (fun block => s!"observation: {inlineBlock block}")) ++
       (if artifact.warnings.isEmpty then [] else artifact.warnings.map (fun block => s!"warning: {inlineBlock block}")) ++
       (if artifact.inductions.isEmpty then [] else artifact.inductions.map (fun block => s!"induction: {inlineBlock block}")) ++
@@ -249,7 +263,7 @@ def snapshotOfDynamicHints
     (sourcePath theoremName : String)
     (artifact : ACL2.HintBridge.DynamicArtifact) : Snapshot :=
   { theoremName := s!"ACL2 emitted hints for {theoremName}"
-    goal := s!"ACL2 dynamic summary:\n  {artifact.summary_form}\n\nDynamic proof context:\n  key checkpoints: {artifact.checkpoints.length}\n  observations: {artifact.observations.length}\n  warnings: {artifact.warnings.length}\n  induction summaries: {artifact.inductions.length}\n  summary rules: {artifact.summary_rules.length}\n  hint-events: {artifact.hint_events.length}\n  prover steps: {artifact.prover_steps.getD 0}"
+    goal := s!"ACL2 dynamic summary:\n  {artifact.summary_form}\n\nDynamic proof context:\n  key checkpoints: {artifact.checkpoints.length}\n  candidate actions: {artifact.actions.length}\n  observations: {artifact.observations.length}\n  warnings: {artifact.warnings.length}\n  induction summaries: {artifact.inductions.length}\n  summary rules: {artifact.summary_rules.length}\n  hint-events: {artifact.hint_events.length}\n  prover steps: {artifact.prover_steps.getD 0}"
     checkpoints := dynamicCheckpoints artifact
     runes := dynamicRunes artifact
     nextMoves := dynamicNextMoves artifact

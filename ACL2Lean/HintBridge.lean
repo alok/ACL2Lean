@@ -6,6 +6,14 @@ open Lean
 namespace ACL2
 namespace HintBridge
 
+structure DynamicAction where
+  kind : String
+  source : String
+  summary : String
+  targets : List String
+  detail : String
+  deriving Inhabited, Repr, FromJson, ToJson
+
 structure DynamicCheckpoint where
   kind : String
   label : String
@@ -27,6 +35,7 @@ structure DynamicArtifact where
   warning_kinds : List String
   summary_time : String
   prover_steps : Option Nat
+  actions : List DynamicAction
   checkpoints : List DynamicCheckpoint
   observations : List String
   warnings : List String
@@ -51,6 +60,7 @@ def unavailableArtifact (book theoremName reason : String) : DynamicArtifact :=
     warning_kinds := []
     summary_time := ""
     prover_steps := none
+    actions := []
     checkpoints := []
     observations := []
     warnings := []
@@ -91,6 +101,21 @@ private def renderSimpleSection (title : String) (items : List String) : List St
   else
     title :: items.map (fun item => s!"  {item}")
 
+private def renderActions (actions : List DynamicAction) : List String :=
+  if actions.isEmpty then
+    []
+  else
+    "actions:" ::
+      actions.foldr
+        (fun action acc =>
+          let targetLine :=
+            if action.targets.isEmpty then
+              []
+            else
+              [s!"    targets: {String.intercalate ", " action.targets}"]
+          [s!"  [{action.source}/{action.kind}] {action.summary}"] ++ targetLine ++ acc)
+        []
+
 def renderLines (artifact : DynamicArtifact) : List String :=
   let header :=
     [ s!"book: {artifact.book}"
@@ -129,6 +154,7 @@ def renderLines (artifact : DynamicArtifact) : List String :=
     match artifact.prover_steps with
     | some steps => [s!"prover-steps: {steps}"]
     | none => []
+  let actions := renderActions artifact.actions
   let observations := renderBlockSection "observations:" artifact.observations
   let warnings := renderBlockSection "warnings:" artifact.warnings
   let inductions := renderBlockSection "inductions:" artifact.inductions
@@ -143,7 +169,7 @@ def renderLines (artifact : DynamicArtifact) : List String :=
             , s!"    {checkpoint.text.replace "\n" "\n    "}"
             ] ++ acc)
           []
-  header ++ loadNote ++ loadSteps ++ summary ++ summaryRules ++ hintEvents ++ splitterRules ++ warningKinds ++ summaryTime ++ proverSteps ++ observations ++ warnings ++ inductions ++ checkpoints
+  header ++ loadNote ++ loadSteps ++ summary ++ summaryRules ++ hintEvents ++ splitterRules ++ warningKinds ++ summaryTime ++ proverSteps ++ actions ++ observations ++ warnings ++ inductions ++ checkpoints
 
 end HintBridge
 end ACL2
