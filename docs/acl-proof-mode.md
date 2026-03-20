@@ -10,7 +10,7 @@ The immediate design split is:
 - `lean-tui` should own proof navigation, graph structure, and cursor-following.
 - the infoview panel should own ACL-specific metadata that Lean's default UI does not expose well: rune selection, checkpoints, hint provenance, and induction choices.
 
-The importer now preserves structured `defthm` metadata (`:hints`, `:instructions`, `:rule-classes`) plus top-level `in-theory` events, so the next UI step can consume real imported proof metadata instead of a hand-written snapshot.
+The importer now preserves structured `defthm` metadata (`:hints`, `:instructions`, `:rule-classes`) plus top-level `in-theory` events, and `#acl_imported_panel "<book>" "<theorem>"` now turns that imported data into a real infoview snapshot. The panel is still showing replay plans rather than checked replay state, but it is no longer limited to a hand-written demo snapshot.
 
 ## Current setup
 
@@ -24,7 +24,7 @@ The importer now preserves structured `defthm` metadata (`:hints`, `:instruction
 - `ACL2Lean/ProofModeDemo.lean` is the first co-design sandbox:
   - imports `LeanPrism`
   - contains a small recursive proof that `lean-tui` can track
-  - renders the first ACL proof-mode infoview panel with `#html`
+  - renders both the original `#acl_panel` theorem view and an imported-theorem view via `#acl_imported_panel "acl2_samples/apply-model-apply-prim.lisp" "apply$-prim-meta-fn-correct"`
 
 ## Grind / Sym extension seam
 
@@ -89,7 +89,7 @@ The notable short-term takeaway is that later ACL arithmetic work should lean on
 
 ## Near-term next steps
 
-1. Replace the static `ProofMode.demoSnapshot` props with actual tactic-state data.
+1. Replace the imported panel's planned checkpoints with actual replay state, not just imported instructions and hints.
 2. Add a compact rune timeline and selected induction variable to the widget.
 3. Prototype a small `ACL2.Grind` helper module that wraps `mkGoal`, `simpIgnoringNoProgress`, `internalizeAll`, and `Goal.grind` for ACL-style checkpointed proofs.
 4. Revisit evaluator arithmetic with `Sym`/`grind` expectations in mind, especially around rationals and casts.

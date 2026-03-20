@@ -39,5 +39,7 @@ theorem demoLenAppendAcl (x y : SExpr) :
 
 #acl_panel demoLenAppendAcl
 
+#acl_imported_panel "acl2_samples/apply-model-apply-prim.lisp" "apply$-prim-meta-fn-correct"
+
 end ProofModeDemo
 end ACL2
