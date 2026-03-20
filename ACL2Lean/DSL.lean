@@ -73,6 +73,9 @@ def mapBuiltinStx (s : String) : Ident :=
     | "logxor" => `_root_.ACL2.Logic.logxor
     | "lognot" => `_root_.ACL2.Logic.lognot
     | "ash" => `_root_.ACL2.Logic.ash
+    | "append" => `_root_.ACL2.Logic.append
+    | "len" => `_root_.ACL2.Logic.len
+    | "true-listp" => `_root_.ACL2.Logic.trueListp
     | s' => sanitize s'
   mkIdent name
 
@@ -120,7 +123,7 @@ partial def translateSExprValue (stx : Syntax) : MacroM (TSyntax `term) := do
 
 /-- Detect built-ins to avoid collecting them as variables. -/
 def isBuiltin (s : String) : Bool :=
-  ["+", "-", "*", "/", "<", ">", "=", "<=", ">=", "if", "zp", "evenp", "equal", "consp", "atom", "car", "cdr", "cons", "not", "and", "or", "implies", "t", "nil", "quote", "let", "declare", "stringp", "string-append", "logand", "logor", "logxor", "lognot", "ash"].contains s
+  ["+", "-", "*", "/", "<", ">", "=", "<=", ">=", "if", "zp", "evenp", "equal", "consp", "atom", "car", "cdr", "cons", "not", "and", "or", "implies", "t", "nil", "quote", "let", "declare", "stringp", "string-append", "logand", "logor", "logxor", "lognot", "ash", "append", "len", "true-listp"].contains s
 
 /-- Collect free variables. -/
 partial def collectFreeVars (stx : Syntax) : MacroM (List Ident) := do

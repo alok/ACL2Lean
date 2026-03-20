@@ -295,5 +295,42 @@ instance : OfNat SExpr n where
 @[simp, grind] theorem toBool_integerp (s : SExpr) : toBool (integerp s) = true ↔ ∃ n, s = .atom (.number (.int n)) := by
   sorry
 
+/-- ACL2 `append` — concatenate two lists. Non-cons first arg returns second. -/
+def append (x y : SExpr) : SExpr :=
+  match x with
+  | .cons a b => .cons a (append b y)
+  | _ => y
+
+/-- ACL2 `len` — length of a list as an ACL2 integer. -/
+def len (x : SExpr) : SExpr :=
+  match x with
+  | .cons _ b => .atom (.number (.int (toInt (len b) + 1)))
+  | _ => .atom (.number (.int 0))
+
+/-- ACL2 `true-listp` — returns t if nil-terminated cons chain, nil otherwise. -/
+def trueListp (x : SExpr) : SExpr :=
+  match x with
+  | .cons _ b => trueListp b
+  | .nil => .atom (.bool true)
+  | _ => .nil
+
+@[simp] theorem append_nil (y : SExpr) : append .nil y = y := rfl
+
+@[simp] theorem append_cons (a b y : SExpr) :
+    append (.cons a b) y = .cons a (append b y) := rfl
+
+@[simp] theorem append_atom (at_ : Atom) (y : SExpr) :
+    append (.atom at_) y = y := rfl
+
+@[simp] theorem len_nil : len .nil = .atom (.number (.int 0)) := rfl
+
+@[simp] theorem len_cons (a b : SExpr) :
+    len (.cons a b) = .atom (.number (.int (toInt (len b) + 1))) := rfl
+
+@[simp] theorem trueListp_nil : trueListp .nil = .atom (.bool true) := rfl
+
+@[simp] theorem trueListp_cons (a b : SExpr) :
+    trueListp (.cons a b) = trueListp b := rfl
+
 end Logic
 end ACL2
