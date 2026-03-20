@@ -175,6 +175,12 @@ def clauseProcessorItems (action : DynamicAction) : List String :=
   | some expr => [toString expr]
   | none => []
 
+def otfFlagExpr? (action : DynamicAction) : Option SExpr := do
+  if action.kind != "otf-flg" then
+    none
+  else
+    action.payloadExpr?
+
 def expandExprs (action : DynamicAction) : List SExpr :=
   if action.kind = "expand" then
     action.payloadExprs
@@ -223,6 +229,10 @@ def structuredLines (action : DynamicAction) (indent : Nat := 0) : List String :
   match action.kind with
   | "in-theory" => action.theoryLines indent
   | "clause-processor" => renderLabeledItems "clause-processor" action.clauseProcessorItems indent
+  | "otf-flg" =>
+      match action.otfFlagExpr? with
+      | some expr => renderLabeledItems "otf-flg" [toString expr] indent
+      | none => []
   | "expand" => renderLabeledItems "expand" action.expandItems indent
   | "cases" => renderLabeledItems "cases" action.casesItems indent
   | "do-not-induct" =>
@@ -374,6 +384,22 @@ private def dynamicClauseProcessorPayloadParses : Bool :=
       line.toLower.contains "clause-processor:" && line.toLower.contains "flag-is-cp")
 
 #guard dynamicClauseProcessorPayloadParses
+
+private def dynamicOtfFlagPayloadParses : Bool :=
+  let action : DynamicAction :=
+    { kind := "otf-flg"
+      source := "transcript-option"
+      summary := "set otf-flg T"
+      goal_target := none
+      targets := ["T"]
+      detail := "(:OTF-FLG T)"
+    }
+  (match action.otfFlagExpr? with
+    | some expr => toString expr = "T"
+    | none => false) &&
+    (action.structuredLines 2).any (fun line => line.contains "otf-flg:" && line.contains "T")
+
+#guard dynamicOtfFlagPayloadParses
 
 private def dynamicDoNotInductPayloadParses : Bool :=
   let action : DynamicAction :=

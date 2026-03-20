@@ -284,6 +284,10 @@ private def actionNote (action : ACL2.HintBridge.DynamicAction) : String :=
     match action.clauseProcessorItems with
     | [] => ""
     | items => " {clause-processor: " ++ String.intercalate "; " items ++ "}"
+  let otfFlag :=
+    match action.otfFlagExpr? with
+    | some expr => " {otf-flg: " ++ toString expr ++ "}"
+    | none => ""
   let inductTerm :=
     match action.inductTermItems with
     | [] => ""
@@ -304,7 +308,7 @@ private def actionNote (action : ACL2.HintBridge.DynamicAction) : String :=
     match action.doNotInductExpr? with
     | some expr => " {do-not-induct: " ++ toString expr ++ "}"
     | none => ""
-  s!"action {action.source}/{action.kind}{goalTarget}: {action.summary}{targets}{theory}{clauseProcessor}{inductTerm}{inductionRule}{expand}{cases}{doNotInduct}"
+  s!"action {action.source}/{action.kind}{goalTarget}: {action.summary}{targets}{theory}{clauseProcessor}{otfFlag}{inductTerm}{inductionRule}{expand}{cases}{doNotInduct}"
 
 private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
   dedupStrings <|
@@ -361,6 +365,12 @@ private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.Dynam
       (artifact.actions.foldr
         (fun action acc =>
           (action.clauseProcessorItems.map (fun item => s!"action-clause-processor {action.source}/{action.kind}: {item}")) ++ acc)
+        []) ++
+      (artifact.actions.foldr
+        (fun action acc =>
+          match action.otfFlagExpr? with
+          | some expr => s!"action-otf-flg {action.source}/{action.kind}: {expr}" :: acc
+          | none => acc)
         []) ++
       (artifact.actions.foldr
         (fun action acc =>
@@ -469,6 +479,13 @@ private def dynamicStructuredPayloadsSurfaceInNotes : Bool :=
             targets := ["FLAG::FLAG-IS-CP"]
             detail := "(:CLAUSE-PROCESSOR FLAG::FLAG-IS-CP)"
           }
+        , { kind := "otf-flg"
+            source := "transcript-option"
+            summary := "set otf-flg T"
+            goal_target := none
+            targets := ["T"]
+            detail := "(:OTF-FLG T)"
+          }
         , { kind := "induct"
             source := "induction"
             summary := "induct on (MAKE-PROG1-INDUCTION I N) using rule MAKE-PROG1-INDUCTION"
@@ -502,6 +519,7 @@ private def dynamicStructuredPayloadsSurfaceInNotes : Bool :=
     }
   let notes := (snapshotOfDynamicHints "acl2_samples/demo.lisp" "demo" artifact).notes
   notes.any (fun note => note.contains "action-clause-processor hint-event/clause-processor:" && note.toLower.contains "flag-is-cp") &&
+    notes.any (fun note => note.contains "action-otf-flg transcript-option/otf-flg: T") &&
     notes.any (fun note => note.contains "action-induct-term induction/induct:" && note.toLower.contains "make-prog1-induction") &&
     notes.any (fun note => note.contains "action-induction-rule induction/induct: MAKE-PROG1-INDUCTION") &&
     notes.any (fun note => note.contains "action-expand transcript-hint/expand:" && note.contains "ev$") &&

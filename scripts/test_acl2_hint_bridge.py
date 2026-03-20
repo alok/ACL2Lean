@@ -1047,6 +1047,41 @@ class HintBridgeParsingTests(unittest.TestCase):
             )
         )
 
+    def test_transcript_echoed_otf_flg_option_is_recovered(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>>
+            (DEFTHM MOD-+-*-FLOOR-GCD
+                    (IMPLIES (NATP I)
+                             (EQUAL I I))
+                    :OTF-FLG T
+                    :HINTS (("Goal" :DO-NOT-INDUCT T)))
+
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM MOD-+-*-FLOOR-GCD ...)
+            Rules: NIL
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             MOD-+-*-FLOOR-GCD
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "mod-+-*-floor-gcd")
+        self.assertTrue(
+            any(
+                action["kind"] == "otf-flg"
+                and action["source"] == "transcript-option"
+                and action["summary"] == "set otf-flg T"
+                and action["goal_target"] is None
+                and action["targets"] == ["T"]
+                for action in artifact["actions"]
+            )
+        )
+
     def test_transcript_echoed_use_lists_split_and_keep_goal_targets(self) -> None:
         transcript = dedent(
             """

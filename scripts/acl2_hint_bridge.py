@@ -755,6 +755,20 @@ def transcript_goal_hint_events(lines: list[str], theorem_name: str) -> list[tup
     return dedup_goal_events(events)
 
 
+def transcript_theorem_option_events(lines: list[str], theorem_name: str) -> list[str]:
+    form_text = collect_transcript_form(lines)
+    if form_text is None:
+        return []
+
+    events: list[str] = []
+    for option_name in (":otf-flg",):
+        payload = defthm_option_value(form_text, theorem_name, option_name)
+        if payload is None:
+            continue
+        events.append(f"({option_name.upper()} {payload})")
+    return dedup_strings(events)
+
+
 def split_use_payload_items(payload: str) -> list[str]:
     stripped = payload.strip()
     if not stripped:
@@ -837,6 +851,17 @@ def parse_hint_event_actions(
                 "cases",
                 source,
                 with_goal(f"split cases {payload}"),
+                detail,
+                targets=targets,
+                goal_target=goal_target or None,
+            )
+        ]
+    if keyword == "otf-flg":
+        return [
+            make_action(
+                "otf-flg",
+                source,
+                with_goal(f"set otf-flg {payload}"),
                 detail,
                 targets=targets,
                 goal_target=goal_target or None,
@@ -1131,6 +1156,7 @@ def extract_induction_actions(inductions: list[str]) -> list[dict[str, object]]:
 def collect_actions(
     summary_hint_events: list[str],
     transcript_goal_hints: list[tuple[str, str]],
+    transcript_theorem_options: list[str],
     splitter_rules: list[str],
     splitter_goal_rules: list[tuple[str, str]],
     warnings: list[str],
@@ -1142,6 +1168,8 @@ def collect_actions(
         actions.extend(parse_hint_event_actions(event))
     for goal_target, event in transcript_goal_hints:
         actions.extend(parse_hint_event_actions(event, goal_target=goal_target, source="transcript-hint"))
+    for event in transcript_theorem_options:
+        actions.extend(parse_hint_event_actions(event, source="transcript-option"))
     actions.extend(extract_splitter_actions(splitter_rules, splitter_goal_rules))
     actions.extend(extract_warning_actions(warnings))
     actions.extend(extract_induction_actions(inductions))
@@ -1396,6 +1424,7 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
     excerpt = theorem_excerpt(lines, all_matches, target_match_idx)
     summary = parse_summary(excerpt, theorem_name)
     transcript_goal_hints = transcript_goal_hint_events(excerpt, theorem_name)
+    transcript_theorem_options = transcript_theorem_option_events(excerpt, theorem_name)
     hint_events = dedup_strings(
         summary["hint_events"] + [event for _, event in transcript_goal_hints]
     )
@@ -1420,6 +1449,7 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
         "actions": collect_actions(
             summary["hint_events"],
             transcript_goal_hints,
+            transcript_theorem_options,
             summary["splitter_rules"],
             splitter_goal_rules,
             warnings,
