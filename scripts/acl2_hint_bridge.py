@@ -72,6 +72,10 @@ FREE_WARNING_WITH_TRIGGER_RE = re.compile(
 )
 SPLITTER_RULE_RE = re.compile(r"^\s*([^:]+):\s*(.+?)\s*$")
 SPLITTER_ENTRY_RE = re.compile(r"^[^(\s:][^:]*:\s*.+$")
+SPLITTER_NOTE_TARGET_RE = re.compile(
+    r"^Splitter note .* for\s+(.+?)\s+\(\d+\s+subgoals?\)\.$",
+    re.IGNORECASE,
+)
 
 
 def normalize_name(name: str) -> str:
@@ -129,11 +133,14 @@ def make_action(
     detail: str,
     *,
     targets: list[str] | None = None,
+    goal_target: str | None = None,
 ) -> dict[str, object]:
+    normalized_goal_target = goal_target.strip() if goal_target else ""
     return {
         "kind": kind,
         "source": source,
         "summary": summary,
+        "goal_target": normalized_goal_target or None,
         "targets": targets or [],
         "detail": detail,
     }
@@ -141,13 +148,15 @@ def make_action(
 
 def dedup_actions(actions: list[dict[str, object]]) -> list[dict[str, object]]:
     deduped: list[dict[str, object]] = []
-    seen: set[tuple[str, str, str, tuple[str, ...]]] = set()
+    seen: set[tuple[str, str, str, str, tuple[str, ...]]] = set()
     for action in actions:
         targets = tuple(str(target) for target in action.get("targets", []))
+        goal_target = str(action.get("goal_target") or "")
         key = (
             str(action.get("kind", "")),
             str(action.get("source", "")),
             str(action.get("summary", "")),
+            goal_target,
             targets,
         )
         if key in seen:
@@ -686,6 +695,7 @@ def parse_hint_event_actions(
                     with_goal(f"use {use_payload}"),
                     detail,
                     targets=targets,
+                    goal_target=goal_target or None,
                 )
             )
         return actions
@@ -701,6 +711,7 @@ def parse_hint_event_actions(
                 with_goal(f"adjust theory {payload}"),
                 detail,
                 targets=targets,
+                goal_target=goal_target or None,
             )
         ]
     if keyword == "cases":
@@ -711,6 +722,7 @@ def parse_hint_event_actions(
                 with_goal(f"split cases {payload}"),
                 detail,
                 targets=targets,
+                goal_target=goal_target or None,
             )
         ]
     return [
@@ -720,6 +732,7 @@ def parse_hint_event_actions(
             with_goal(f"{keyword} {payload}".strip()),
             detail,
             targets=targets,
+            goal_target=goal_target or None,
         )
     ]
 
@@ -775,6 +788,7 @@ def extract_warning_actions(warnings: list[str]) -> list[dict[str, object]]:
                         use_summary,
                         warning,
                         targets=use_targets,
+                        goal_target=goal,
                     )
                 )
             actions.append(
@@ -784,6 +798,7 @@ def extract_warning_actions(warnings: list[str]) -> list[dict[str, object]]:
                     f"disable {rule} in {goal}",
                     warning,
                     targets=[rule, goal],
+                    goal_target=goal,
                 )
             )
 
@@ -855,24 +870,82 @@ def extract_warning_actions(warnings: list[str]) -> list[dict[str, object]]:
     return actions
 
 
-def extract_splitter_actions(splitter_rules: list[str]) -> list[dict[str, object]]:
-    actions: list[dict[str, object]] = []
-    for rule in splitter_rules:
-        rule_text = inline_text(rule)
-        match = SPLITTER_RULE_RE.match(rule_text)
-        if match is None:
-            actions.append(make_action("splitter", "splitter", f"apply splitter {rule_text}", rule))
+def collect_splitter_goal_rules(lines: list[str]) -> list[tuple[str, str]]:
+    splitter_goal_rules: list[tuple[str, str]] = []
+    i = 0
+    while i < len(lines):
+        target_match = SPLITTER_NOTE_TARGET_RE.match(lines[i].strip())
+        if target_match is None:
+            i += 1
             continue
-        splitter_name, payload = match.groups()
-        actions.append(
-            make_action(
-                "split-goal",
-                "splitter",
-                f"split using {splitter_name.strip()} with {payload.strip()}",
-                rule,
-                targets=[splitter_name.strip(), payload.strip()],
-            )
+
+        goal_target = target_match.group(1).strip()
+        j = i + 1
+        block_lines: list[str] = []
+        while j < len(lines):
+            line = lines[j].rstrip()
+            stripped = line.strip()
+            if not stripped:
+                break
+            if stripped == "Summary" or stripped == "Q.E.D.":
+                break
+            if GOAL_LINE_RE.fullmatch(stripped) or SUBGOAL_LINE_RE.fullmatch(stripped):
+                break
+            if SPLITTER_NOTE_TARGET_RE.match(stripped) or PROMPT_RE.match(stripped):
+                break
+            block_lines.append(line)
+            j += 1
+
+        if block_lines:
+            for entry in normalize_splitter_entries("\n".join(block_lines)):
+                splitter_goal_rules.append((goal_target, entry))
+
+        i = j
+
+    return dedup_goal_events(splitter_goal_rules)
+
+
+def splitter_action(rule: str, goal_target: str = "") -> dict[str, object]:
+    rule_text = inline_text(rule)
+    match = SPLITTER_RULE_RE.match(rule_text)
+    summary_goal = f" in {goal_target}" if goal_target else ""
+    if match is None:
+        targets = [] if not goal_target else [goal_target]
+        return make_action(
+            "splitter",
+            "splitter",
+            f"apply splitter {rule_text}{summary_goal}",
+            rule,
+            targets=targets,
+            goal_target=goal_target or None,
         )
+
+    splitter_name, payload = match.groups()
+    targets = [splitter_name.strip(), payload.strip()]
+    if goal_target:
+        targets.append(goal_target)
+    return make_action(
+        "split-goal",
+        "splitter",
+        f"split using {splitter_name.strip()} with {payload.strip()}{summary_goal}",
+        rule,
+        targets=targets,
+        goal_target=goal_target or None,
+    )
+
+
+def extract_splitter_actions(
+    splitter_rules: list[str],
+    splitter_goal_rules: list[tuple[str, str]],
+) -> list[dict[str, object]]:
+    actions: list[dict[str, object]] = []
+    targeted_rules = {inline_text(rule) for _, rule in splitter_goal_rules}
+    for goal_target, rule in splitter_goal_rules:
+        actions.append(splitter_action(rule, goal_target))
+    for rule in splitter_rules:
+        if inline_text(rule) in targeted_rules:
+            continue
+        actions.append(splitter_action(rule))
     return actions
 
 
@@ -900,6 +973,7 @@ def collect_actions(
     summary_hint_events: list[str],
     transcript_goal_hints: list[tuple[str, str]],
     splitter_rules: list[str],
+    splitter_goal_rules: list[tuple[str, str]],
     warnings: list[str],
     inductions: list[str],
     observations: list[str],
@@ -909,7 +983,7 @@ def collect_actions(
         actions.extend(parse_hint_event_actions(event))
     for goal_target, event in transcript_goal_hints:
         actions.extend(parse_hint_event_actions(event, goal_target=goal_target, source="transcript-hint"))
-    actions.extend(extract_splitter_actions(splitter_rules))
+    actions.extend(extract_splitter_actions(splitter_rules, splitter_goal_rules))
     actions.extend(extract_warning_actions(warnings))
     actions.extend(extract_induction_actions(inductions))
     actions.extend(extract_observation_actions(observations))
@@ -1169,6 +1243,7 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
     observations = collect_prefixed_blocks(excerpt, "ACL2 Observation")
     warnings = collect_prefixed_blocks(excerpt, "ACL2 Warning")
     inductions = collect_induction_blocks(excerpt)
+    splitter_goal_rules = collect_splitter_goal_rules(excerpt)
     explicit_checkpoints = collect_checkpoint_blocks(excerpt)
     progress = collect_progress_entries(excerpt)
 
@@ -1187,6 +1262,7 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
             summary["hint_events"],
             transcript_goal_hints,
             summary["splitter_rules"],
+            splitter_goal_rules,
             warnings,
             inductions,
             observations,

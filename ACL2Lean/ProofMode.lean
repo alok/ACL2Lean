@@ -186,12 +186,29 @@ private def dynamicCheckpointTitle (idx : Nat) (checkpoint : ACL2.HintBridge.Dyn
   | "subgoal" => s!"ACL2 {checkpoint.label}"
   | _ => s!"Emitted checkpoint {idx + 1}: {checkpoint.label}"
 
+private def checkpointTargetedActions
+    (artifact : ACL2.HintBridge.DynamicArtifact)
+    (checkpoint : ACL2.HintBridge.DynamicCheckpoint) : List ACL2.HintBridge.DynamicAction :=
+  artifact.actions.filter (fun action => action.goal_target = some checkpoint.label)
+
+private def dynamicCheckpointDetail
+    (artifact : ACL2.HintBridge.DynamicArtifact)
+    (checkpoint : ACL2.HintBridge.DynamicCheckpoint) : String :=
+  let targeted := checkpointTargetedActions artifact checkpoint
+  if targeted.isEmpty then
+    checkpoint.text
+  else
+    checkpoint.text ++
+      "\n\nTargeted ACL2 actions:\n" ++
+      String.intercalate "\n" (targeted.map (fun action => s!"- {action.summary}"))
+
 private def dynamicCheckpointEntries
+    (artifact : ACL2.HintBridge.DynamicArtifact)
     (completedLabels : List String) : Nat → List ACL2.HintBridge.DynamicCheckpoint → List Checkpoint
   | _, [] => []
   | idx, checkpoint :: rest =>
       { title := dynamicCheckpointTitle idx checkpoint
-        detail := checkpoint.text
+        detail := dynamicCheckpointDetail artifact checkpoint
         status :=
           if completedLabels.contains checkpoint.label then
             "done"
@@ -199,7 +216,7 @@ private def dynamicCheckpointEntries
             "active"
           else
             "planned" } ::
-        dynamicCheckpointEntries completedLabels (idx + 1) rest
+        dynamicCheckpointEntries artifact completedLabels (idx + 1) rest
 
 private def dynamicProgressTitle (idx : Nat) (entry : ACL2.HintBridge.DynamicProgress) : String :=
   match entry.kind with
@@ -220,7 +237,7 @@ private def dynamicCheckpoints (artifact : ACL2.HintBridge.DynamicArtifact) : Li
   let context := dynamicContextCheckpoint artifact
   let completedLabels := completedCheckpointLabels artifact
   let progress := dynamicProgressEntries 0 artifact.progress
-  let emitted := dynamicCheckpointEntries completedLabels 0 artifact.checkpoints
+  let emitted := dynamicCheckpointEntries artifact completedLabels 0 artifact.checkpoints
   match progress ++ emitted with
   | [] =>
       [ context
@@ -241,12 +258,16 @@ private def actionSummary (action : ACL2.HintBridge.DynamicAction) : String :=
   s!"ACL2 suggests: {action.summary}"
 
 private def actionNote (action : ACL2.HintBridge.DynamicAction) : String :=
+  let goalTarget :=
+    match action.goal_target with
+    | some goal => s!" @ {goal}"
+    | none => ""
   let targets :=
     if action.targets.isEmpty then
       ""
     else
       s!" [{String.intercalate ", " action.targets}]"
-  s!"action {action.source}/{action.kind}: {action.summary}{targets}"
+  s!"action {action.source}/{action.kind}{goalTarget}: {action.summary}{targets}"
 
 private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
   dedupStrings <|

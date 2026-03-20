@@ -87,6 +87,7 @@ class HintBridgeParsingTests(unittest.TestCase):
             any(
                 action["kind"] == "use"
                 and action["summary"] == "use NBR-CALLS-FLOG2-UPPER-BOUND"
+                and action["goal_target"] is None
                 and action["targets"] == ["NBR-CALLS-FLOG2-UPPER-BOUND"]
                 for action in artifact["actions"]
             )
@@ -95,6 +96,7 @@ class HintBridgeParsingTests(unittest.TestCase):
             any(
                 action["kind"] == "disable-rule"
                 and action["summary"] == "disable (:REWRITE NBR-CALLS-FLOG2-UPPER-BOUND) in Goal"
+                and action["goal_target"] == "Goal"
                 and action["targets"] == ["(:REWRITE NBR-CALLS-FLOG2-UPPER-BOUND)", "Goal"]
                 for action in artifact["actions"]
             )
@@ -104,6 +106,7 @@ class HintBridgeParsingTests(unittest.TestCase):
                 action["kind"] == "use"
                 and action["source"] == "warning"
                 and action["summary"] == "use NBR-CALLS-FLOG2-UPPER-BOUND in Goal"
+                and action["goal_target"] == "Goal"
                 and action["targets"] == ["NBR-CALLS-FLOG2-UPPER-BOUND", "Goal"]
                 for action in artifact["actions"]
             )
@@ -410,8 +413,9 @@ class HintBridgeParsingTests(unittest.TestCase):
         self.assertTrue(
             any(
                 action["kind"] == "split-goal"
-                and action["summary"] == "split using if-intro with ((:DEFINITION GCD-PROG!))"
-                and action["targets"] == ["if-intro", "((:DEFINITION GCD-PROG!))"]
+                and action["summary"] == "split using if-intro with ((:DEFINITION GCD-PROG!)) in Goal''"
+                and action["goal_target"] == "Goal''"
+                and action["targets"] == ["if-intro", "((:DEFINITION GCD-PROG!))", "Goal''"]
                 for action in artifact["actions"]
             )
         )
@@ -457,8 +461,9 @@ class HintBridgeParsingTests(unittest.TestCase):
                 {
                     "kind": "split-goal",
                     "source": "splitter",
-                    "summary": "split using if-intro with ((:DEFINITION NFIX) (:DEFINITION NONNEG-INT-GCD))",
-                    "targets": ["if-intro", "((:DEFINITION NFIX) (:DEFINITION NONNEG-INT-GCD))"],
+                    "summary": "split using if-intro with ((:DEFINITION NFIX) (:DEFINITION NONNEG-INT-GCD)) in Goal",
+                    "goal_target": "Goal",
+                    "targets": ["if-intro", "((:DEFINITION NFIX) (:DEFINITION NONNEG-INT-GCD))", "Goal"],
                     "detail": "if-intro: ((:DEFINITION NFIX)\n(:DEFINITION NONNEG-INT-GCD))",
                 }
             ],
@@ -733,6 +738,7 @@ class HintBridgeParsingTests(unittest.TestCase):
                 action["kind"] == "expand"
                 and action["source"] == "transcript-hint"
                 and action["summary"] == "expand ((EV$ X A)) in Goal"
+                and action["goal_target"] == "Goal"
                 and action["targets"] == ["((EV$ X A))", "Goal"]
                 for action in artifact["actions"]
             )
@@ -769,6 +775,7 @@ class HintBridgeParsingTests(unittest.TestCase):
                 action["kind"] == "in-theory"
                 and action["source"] == "transcript-hint"
                 and action["summary"] == "adjust theory (ENABLE HONS-ASSOC-EQUAL) in Goal"
+                and action["goal_target"] == "Goal"
                 and action["targets"] == ["(ENABLE HONS-ASSOC-EQUAL)", "Goal"]
                 for action in artifact["actions"]
             )
@@ -858,6 +865,7 @@ class HintBridgeParsingTests(unittest.TestCase):
                 action["kind"] == "use"
                 and action["source"] == "transcript-hint"
                 and action["summary"] == "use BASE-LEMMA in Goal"
+                and action["goal_target"] == "Goal"
                 and action["targets"] == ["BASE-LEMMA", "Goal"]
                 for action in artifact["actions"]
             )
@@ -867,6 +875,7 @@ class HintBridgeParsingTests(unittest.TestCase):
                 action["kind"] == "expand"
                 and action["source"] == "transcript-hint"
                 and action["summary"] == "expand (FOO X) in Goal'''"
+                and action["goal_target"] == "Goal'''"
                 and action["targets"] == ["(FOO X)", "Goal'''"]
                 for action in artifact["actions"]
             )
@@ -876,6 +885,7 @@ class HintBridgeParsingTests(unittest.TestCase):
                 action["kind"] == "in-theory"
                 and action["source"] == "transcript-hint"
                 and action["summary"] == "adjust theory (ENABLE BAR) in Subgoal 2"
+                and action["goal_target"] == "Subgoal 2"
                 and action["targets"] == ["(ENABLE BAR)", "Subgoal 2"]
                 for action in artifact["actions"]
             )
@@ -885,6 +895,7 @@ class HintBridgeParsingTests(unittest.TestCase):
                 action["kind"] == "do-not-induct"
                 and action["source"] == "transcript-hint"
                 and action["summary"] == "do-not-induct T in Subgoal 2"
+                and action["goal_target"] == "Subgoal 2"
                 and action["targets"] == ["T", "Subgoal 2"]
                 for action in artifact["actions"]
             )

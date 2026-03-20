@@ -10,6 +10,7 @@ structure DynamicAction where
   kind : String
   source : String
   summary : String
+  goal_target : Option String
   targets : List String
   detail : String
   deriving Inhabited, Repr, FromJson, ToJson
@@ -116,12 +117,16 @@ private def renderActions (actions : List DynamicAction) : List String :=
     "actions:" ::
       actions.foldr
         (fun action acc =>
+          let goalLine :=
+            match action.goal_target with
+            | some goal => [s!"    goal-target: {goal}"]
+            | none => []
           let targetLine :=
             if action.targets.isEmpty then
               []
             else
               [s!"    targets: {String.intercalate ", " action.targets}"]
-          [s!"  [{action.source}/{action.kind}] {action.summary}"] ++ targetLine ++ acc)
+          ([s!"  [{action.source}/{action.kind}] {action.summary}"] ++ goalLine ++ targetLine) ++ acc)
         []
 
 def renderLines (artifact : DynamicArtifact) : List String :=
