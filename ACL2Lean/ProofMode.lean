@@ -155,14 +155,26 @@ def snapshotOfImportedTheorem
   }
 
 private def dynamicContextCheckpoint (artifact : ACL2.HintBridge.DynamicArtifact) : Checkpoint :=
+  let keyCheckpointCount :=
+    artifact.checkpoints.foldl
+      (fun count checkpoint => if checkpoint.kind = "key-checkpoint" then count + 1 else count)
+      0
+  let traceCheckpointCount := artifact.checkpoints.length - keyCheckpointCount
   { title := "Dynamic ACL2 hint extraction"
-    detail := s!"Recovered {artifact.checkpoints.length} key checkpoints, {artifact.observations.length} observations, {artifact.warnings.length} warnings, {artifact.inductions.length} induction summaries, {artifact.summary_rules.length} summary rules, and {artifact.hint_events.length} hint-events from the ACL2 proof run."
+    detail := s!"Recovered {keyCheckpointCount} key checkpoints, {traceCheckpointCount} raw goal/subgoal markers, {artifact.observations.length} observations, {artifact.warnings.length} warnings, {artifact.inductions.length} induction summaries, {artifact.summary_rules.length} summary rules, and {artifact.hint_events.length} hint-events from the ACL2 proof run."
     status := if artifact.checkpoints.isEmpty then "planned" else "done" }
+
+private def dynamicCheckpointTitle (idx : Nat) (checkpoint : ACL2.HintBridge.DynamicCheckpoint) : String :=
+  match checkpoint.kind with
+  | "key-checkpoint" => s!"ACL2 key checkpoint {idx + 1}: {checkpoint.label}"
+  | "goal" => s!"ACL2 goal: {checkpoint.label}"
+  | "subgoal" => s!"ACL2 {checkpoint.label}"
+  | _ => s!"Emitted checkpoint {idx + 1}: {checkpoint.label}"
 
 private def dynamicCheckpointEntries : Nat → List ACL2.HintBridge.DynamicCheckpoint → List Checkpoint
   | _, [] => []
   | idx, checkpoint :: rest =>
-      { title := s!"Emitted checkpoint {idx + 1}"
+      { title := dynamicCheckpointTitle idx checkpoint
         detail := checkpoint.text
         status := if idx = 0 then "active" else "planned" } ::
         dynamicCheckpointEntries (idx + 1) rest

@@ -128,10 +128,44 @@ class HintBridgeParsingTests(unittest.TestCase):
         artifact = bridge.theorem_section(transcript, "natp-clog2")
         self.assertEqual(len(artifact["observations"]), 1)
         self.assertIn(":TYPED-TERM", artifact["observations"][0])
-        self.assertEqual(len(artifact["checkpoints"]), 1)
+        self.assertEqual(len(artifact["checkpoints"]), 2)
+        self.assertEqual(artifact["checkpoints"][0]["kind"], "key-checkpoint")
         self.assertEqual(artifact["checkpoints"][0]["label"], "Goal'")
+        self.assertEqual(artifact["checkpoints"][1]["kind"], "subgoal")
+        self.assertEqual(artifact["checkpoints"][1]["label"], "Subgoal *1/8")
         self.assertEqual(len(artifact["inductions"]), 1)
         self.assertIn(":induction rule CLOG2", artifact["inductions"][0])
+
+    def test_raw_goal_and_subgoal_lines_become_checkpoints(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>
+            Goal'
+            Goal''
+            Subgoal 2
+            Subgoal 1.1''
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM MAKE-PROG-CORRECT ...)
+            Rules: NIL
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             MAKE-PROG-CORRECT
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "make-prog-correct")
+        self.assertEqual(
+            artifact["checkpoints"],
+            [
+                {"kind": "goal", "label": "Goal'", "text": "Goal'"},
+                {"kind": "goal", "label": "Goal''", "text": "Goal''"},
+                {"kind": "subgoal", "label": "Subgoal 2", "text": "Subgoal 2"},
+                {"kind": "subgoal", "label": "Subgoal 1.1''", "text": "Subgoal 1.1''"},
+            ],
+        )
 
     def test_load_failure_is_reported(self) -> None:
         transcript = dedent(

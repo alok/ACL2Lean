@@ -7,6 +7,7 @@ namespace ACL2
 namespace HintBridge
 
 structure DynamicCheckpoint where
+  kind : String
   label : String
   text : String
   deriving Inhabited, Repr, FromJson, ToJson
@@ -138,7 +139,7 @@ def renderLines (artifact : DynamicArtifact) : List String :=
       "checkpoints:" ::
         artifact.checkpoints.foldr
           (fun checkpoint acc =>
-            [ s!"  {checkpoint.label}"
+            [ s!"  [{checkpoint.kind}] {checkpoint.label}"
             , s!"    {checkpoint.text.replace "\n" "\n    "}"
             ] ++ acc)
           []

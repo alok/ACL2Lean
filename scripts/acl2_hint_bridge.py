@@ -15,6 +15,8 @@ from pathlib import Path
 THEOREM_FORM_RE = re.compile(r"Form:\s+\(\s*DEFTHM\s+([^\s)]+)", re.IGNORECASE)
 ACL2_ERROR_RE = re.compile(r"^ACL2 Error\b")
 FAILED_MARKER = "******** FAILED ********"
+GOAL_LINE_RE = re.compile(r"^Goal(?:'+)?$")
+SUBGOAL_LINE_RE = re.compile(r"^Subgoal\b.+$")
 
 
 def normalize_name(name: str) -> str:
@@ -209,10 +211,31 @@ def collect_checkpoint_blocks(lines: list[str]) -> list[dict[str, str]]:
             body = "\n".join(line.rstrip() for line in lines[start:j]).strip()
             if body:
                 first = body.splitlines()[0].strip()
-                blocks.append({"label": first, "text": body})
+                blocks.append({"kind": "key-checkpoint", "label": first, "text": body})
             i = j
         i += 1
     return blocks
+
+
+def collect_trace_checkpoints(lines: list[str], known_labels: set[str]) -> list[dict[str, str]]:
+    checkpoints: list[dict[str, str]] = []
+    seen = set(known_labels)
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line == "Summary":
+            continue
+        kind: str | None = None
+        if GOAL_LINE_RE.fullmatch(line):
+            kind = "goal"
+        elif SUBGOAL_LINE_RE.fullmatch(line):
+            kind = "subgoal"
+        else:
+            continue
+        if line in seen:
+            continue
+        seen.add(line)
+        checkpoints.append({"kind": kind, "label": line, "text": line})
+    return checkpoints
 
 
 def collect_prefixed_blocks(lines: list[str], prefix: str) -> list[str]:
@@ -412,7 +435,11 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
         "warning_kinds": summary["warning_kinds"],
         "summary_time": summary["summary_time"],
         "prover_steps": summary["prover_steps"],
-        "checkpoints": collect_checkpoint_blocks(excerpt),
+        "checkpoints": (
+            lambda explicit: explicit + collect_trace_checkpoints(
+                excerpt, {checkpoint["label"] for checkpoint in explicit}
+            )
+        )(collect_checkpoint_blocks(excerpt)),
         "observations": collect_prefixed_blocks(excerpt, "ACL2 Observation"),
         "warnings": collect_prefixed_blocks(excerpt, "ACL2 Warning"),
         "inductions": collect_induction_blocks(excerpt),
