@@ -141,6 +141,12 @@ private def parseBindingExpr (bindingSpec : String) : TacticM (List (String × S
       | some binding => pure [binding]
       | none => throwError "ACL2 instance bindings must be a list of pairs like ((n (/ n 2)))"
 
+private def parseSingleAcl2Expr (spec : String) : TacticM SExpr := do
+  match ACL2.Parse.parseAll spec with
+  | .ok [expr] => pure expr
+  | .ok _ => throwError "Expected exactly one ACL2 term"
+  | .error err => throwError s!"Could not parse ACL2 term: {err}"
+
 private def buildAppliedTheoremSyntax
     (declName : Name)
     (bindings : List (String × SExpr)) : TacticM (TSyntax `term) := do
@@ -176,6 +182,36 @@ private def tryImportedTerms
     catch _ =>
       saved.restore
   throwError m!"Imported Lean theorems for ACL2 theorem {acl2Name} were found ({String.intercalate ", " (declNames.map toString)}), but none matched the current goal."
+
+private def inductionTargetOfSExpr (expr : SExpr) : TacticM (Name × Array (TSyntax `term)) := do
+  match expr with
+  | .cons (.atom (.symbol sym)) argsExpr =>
+      let fName := identNameOfAcl2String sym.name
+      let args ←
+        match argsExpr.toList? with
+        | some args => args.mapM acl2TermSyntax
+        | none => throwError "ACL2 induction terms must be proper function calls like (CLOG2 N)"
+      pure (fName, args.toArray)
+  | _ => throwError "ACL2 induction terms must be function calls like (CLOG2 N)"
+
+private def runAcl2Induct (fName : Name) (fArgs : Array (TSyntax `term)) : TacticM Unit := do
+  let inductName := fName ++ `induct
+  let inductTerm := mkIdent inductName
+
+  if fArgs.isEmpty then
+     let mut fvarNames := #[]
+     for fvarId in (← getLCtx).getFVarIds do
+       let localDecl ← fvarId.getDecl
+       if !localDecl.isAuxDecl then
+         fvarNames := fvarNames.push localDecl.userName
+
+     if fvarNames.isEmpty then
+       evalTactic (← `(tactic| apply $(inductTerm)))
+     else
+       let fvarTerms : Array (TSyntax `term) := fvarNames.map (fun name => ⟨(mkIdent name).raw⟩)
+       evalTactic (← `(tactic| induction $[$fvarTerms:term],* using $inductTerm))
+  else
+     evalTactic (← `(tactic| induction $[$fArgs:term],* using $inductTerm))
 
 /--
 Helper to find the first recursive function application in an expression.
@@ -258,26 +294,17 @@ elab "acl2_induct" f:(ident)? args:term* : tactic => do
           return (TSyntax.mk stx)
         pure (name, tArgs)
       | none => throwError "Could not find a recursive function call to induct on."
+  runAcl2Induct fName fArgs
 
-  let inductName := fName ++ `induct
-  let inductTerm := mkIdent inductName
-  let mut targets : Array (TSyntax ``Parser.Tactic.elimTarget) := fArgs.map fun a => ⟨a.raw⟩
-
-  if targets.isEmpty then
-     let mut fvarNames := #[]
-     for fvarId in (← getLCtx).getFVarIds do
-       let localDecl ← fvarId.getDecl
-       if !localDecl.isAuxDecl then
-         fvarNames := fvarNames.push localDecl.userName
-
-     if fvarNames.isEmpty then
-       evalTactic (← `(tactic| apply $(inductTerm)))
-     else
-       let fvarIdents := fvarNames.map mkIdent
-       let fvarTargets : Array (TSyntax ``Parser.Tactic.elimTarget) := fvarIdents.map fun id => ⟨id.raw⟩
-       evalTactic (← `(tactic| induction $[$fvarTargets],* using $inductTerm))
-  else
-     evalTactic (← `(tactic| induction $[$targets],* using $inductTerm))
+/--
+`acl2_induct_term "(CLOG2 N)"` replays ACL2's chosen induction term directly
+from ACL2 syntax, translating the function call into the corresponding Lean
+recursive definition before applying its induction principle.
+-/
+elab "acl2_induct_term " termSpec:str : tactic => do
+  let expr ← parseSingleAcl2Expr termSpec.getString
+  let (fName, fArgs) ← inductionTargetOfSExpr expr
+  runAcl2Induct fName fArgs
 
 end Tactics
 end ACL2

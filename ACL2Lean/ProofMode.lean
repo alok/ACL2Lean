@@ -413,10 +413,16 @@ private def dynamicNextMoves
         none
       else
         some "Use ACL2's emitted induction-push and completion events to reconcile planned checkpoints with checked replay progress."
-    , if artifact.inductions.isEmpty then
-        none
-      else
-        some "Map ACL2's emitted induction scheme into a Lean induction candidate instead of reconstructing it from scratch."
+    , match artifact.actions.findSome? (fun action =>
+          action.rawInductTerm? |>.map (fun termText =>
+            s!"If the translated Lean definition exposes an induction principle, start replay from ACL2's induction choice with acl2_induct_term {repr termText} before choosing a manual induction scheme."))
+      with
+      | some move => some move
+      | none =>
+          if artifact.inductions.isEmpty then
+            none
+          else
+            some "Map ACL2's emitted induction scheme into a Lean induction candidate instead of reconstructing it from scratch."
     , if replayState.inductionSummary?.isNone then
         none
       else
@@ -892,6 +898,48 @@ private def dynamicResolvedImportedUsesSurfaceInSnapshot : Bool :=
       note.toLower.contains "replay-seed-tactic: hint-event @ goal: acl2_use \"nbr-calls-flog2-upper-bound\"")
 
 #guard dynamicResolvedImportedUsesSurfaceInSnapshot
+
+private def dynamicInductionReplaySeedSurfacesInSnapshot : Bool :=
+  let artifact : ACL2.HintBridge.DynamicArtifact :=
+    { book := "acl2_samples/2009-log2.lisp"
+      resolved_book := "acl2_samples/2009-log2.lisp"
+      load_steps := ["acl2_samples/2009-log2.lisp"]
+      load_note := ""
+      requested_theorem := "natp-clog2"
+      theorem_name := "NATP-CLOG2"
+      status := "proved"
+      summary_form := "( DEFTHM NATP-CLOG2 ...)"
+      summary_rules := []
+      hint_events := []
+      splitter_rules := []
+      warning_kinds := []
+      summary_time := ""
+      prover_steps := none
+      actions :=
+        [ { kind := "induct"
+            source := "induction"
+            summary := "induct on (CLOG2 N) using rule CLOG2"
+            goal_target := none
+            targets := ["(CLOG2 N)", "CLOG2"]
+            detail := "We will induct according to a scheme suggested by (CLOG2 N)."
+          }
+        ]
+      checkpoints := []
+      progress := []
+      observations := []
+      warnings := []
+      inductions := ["We will induct according to a scheme suggested by (CLOG2 N)."]
+      raw_excerpt := []
+      stderr := ""
+      exit_code := 0
+    }
+  let snap := snapshotOfDynamicHints "acl2_samples/2009-log2.lisp" "natp-clog2" artifact
+  snap.nextMoves.any (fun move =>
+      move.contains "acl2_induct_term \"(CLOG2 N)\"") &&
+    snap.notes.any (fun note =>
+      note.contains "replay-seed-tactic: induction: acl2_induct_term \"(CLOG2 N)\"")
+
+#guard dynamicInductionReplaySeedSurfacesInSnapshot
 
 private def findImportedTheoremContext
     (events : List Event)

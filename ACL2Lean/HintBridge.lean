@@ -511,6 +511,10 @@ def inductTermItems (action : DynamicAction) : List String :=
   | some expr => [toString expr]
   | none => []
 
+def rawInductTerm? (action : DynamicAction) : Option String := do
+  guard (action.kind = "induct")
+  action.nonGoalTargets.head? <|> action.inductTermItems.head?
+
 def inductionRule? (action : DynamicAction) : Option String :=
   if action.kind != "induct" then
     none
@@ -1014,7 +1018,12 @@ def resolvedImportedUseCount
 def replaySeedTacticLines
     (artifact : DynamicArtifact)
     (registry : ImportedRegistry.Snapshot := {}) : List String :=
-  artifact.resolvedImportedUses registry |>.map ResolvedImportedUse.replaySeedTactic
+  let importedUses := artifact.resolvedImportedUses registry |>.map ResolvedImportedUse.replaySeedTactic
+  let inductionSeeds :=
+    artifact.actions.filterMap fun action => do
+      let termText ← action.rawInductTerm?
+      pure <| formatReplayEntry action.source action.goal_target s!"acl2_induct_term {repr termText}"
+  dedupStrings (importedUses ++ inductionSeeds)
 
 private def theoryGuidanceOf : TheoryExpr → TheoryGuidance
   | .enable items => { enables := items.map toString }
@@ -1921,6 +1930,48 @@ private def dynamicReplayStateSummarizesActions : Bool :=
       line.contains "typed-terms:")
 
 #guard dynamicReplayStateSummarizesActions
+
+private def inductionReplaySeedTacticIsRendered : Bool :=
+  let artifact : DynamicArtifact :=
+    { book := "acl2_samples/demo.lisp"
+      resolved_book := "acl2_samples/demo.lisp"
+      load_steps := ["acl2_samples/demo.lisp"]
+      load_note := ""
+      requested_theorem := "demo"
+      theorem_name := "DEMO"
+      status := "proved"
+      summary_form := "( DEFTHM DEMO ...)"
+      summary_rules := []
+      hint_events := []
+      splitter_rules := []
+      warning_kinds := []
+      summary_time := ""
+      prover_steps := none
+      actions :=
+        [ { kind := "induct"
+            source := "induction"
+            summary := "induct on (CLOG2 N) using rule CLOG2"
+            goal_target := none
+            targets := ["(CLOG2 N)", "CLOG2"]
+            detail := "We will induct according to a scheme suggested by (CLOG2 N)."
+          }
+        ]
+      checkpoints := []
+      progress := []
+      observations := []
+      warnings := []
+      inductions := []
+      raw_excerpt := []
+      stderr := ""
+      exit_code := 0
+    }
+  artifact.replaySeedTacticLines = ["induction: acl2_induct_term \"(CLOG2 N)\""] &&
+    (renderLines artifact).any (fun line =>
+      line.contains "replay-seed-tactics:") &&
+    (renderLines artifact).any (fun line =>
+      line.contains "induction: acl2_induct_term \"(CLOG2 N)\"")
+
+#guard inductionReplaySeedTacticIsRendered
 
 end HintBridge
 end ACL2
