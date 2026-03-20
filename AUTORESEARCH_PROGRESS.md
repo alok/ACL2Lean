@@ -531,3 +531,42 @@ Next best ideas:
 1. parse richer dynamic theory guidance such as emitted `:in-theory`, `:expand`, and `:do-not-induct` hint-events into structured Lean-side actions instead of flat strings
 2. capture lifecycle lines like `*1 ... is pushed for proof by induction` and `Thus key checkpoint Goal is COMPLETED!` as structured progress metadata instead of leaving them only in `raw_excerpt`
 3. execute the accumulated dynamic replay actions against real Lean goals, starting with `use`, split, disable-definition/theory adjustments, and typed-term-guided induction setup
+
+## 2026-03-19 Iteration 15
+
+Completed this iteration:
+
+- hardened `scripts/acl2_hint_bridge.py` against two real ACL2 transcript quirks from the dynamic hint-generator path: prompt-adjacent proof markers like `ACL2 !>>Goal'` and multiline splitter/hint payloads that ACL2 pretty-prints across several lines
+- added transcript normalization before theorem slicing so `renaming-hack-lemma` now preserves the first `Goal'` checkpoint instead of dropping it when ACL2 prints it on the prompt line
+- replaced line-based summary parsing with grouped multiline entry parsing for summary rules, hint-events, and splitter rules, so `nonneg-int-gcd-0` now carries one coherent `if-intro` splitter action instead of two bogus fragments
+- added regression coverage for both real failure modes plus synthetic multiline `:IN-THEORY`, `:EXPAND`, and `:DO-NOT-INDUCT` hint-events, and updated `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md` to document the more robust dynamic bridge surface
+- tracked this slice in Linear as `ALOK-554`
+
+Verification:
+
+- research branch commit `560bcb3`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `560bcb3`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/die-hard-work.lisp --theorem nonneg-int-gcd-0 | sed -n '1,180p'`
+- research branch commit `560bcb3`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/die-hard-work.lisp --theorem renaming-hack-lemma | sed -n '1,160p'`
+- research branch commit `560bcb3`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/die-hard-work.lisp --theorem exists-gcd-prog | sed -n '1,200p'`
+- research branch commit `560bcb3`: `LAKE_NO_CACHE=1 lake build`
+- research branch commit `560bcb3`: `uv run python Verify.py`
+- research branch commit `560bcb3`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp nonneg-int-gcd-0 | sed -n '1,120p'`
+- research branch commit `560bcb3`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp renaming-hack-lemma | sed -n '1,120p'`
+- research branch commit `560bcb3`: `./.lake/build/bin/acl2lean ci autoresearch/mar19-acl2lean`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- `nonneg-int-gcd-0` is now a concrete dynamic-bridge acceptance test for grouped theory/split guidance: the CLI and JSON paths both surface a single `split-goal` action with the full `if-intro` payload instead of inventing a second fake splitter entry
+- `renaming-hack-lemma` now reaches Lean with the full leading `Goal'`, `Goal''`, and `Goal'''` checkpoint chain even though ACL2 printed the first one directly on the prompt line
+- this is a real advance on the ACL2-oracle path because it fixes fidelity bugs in the emitted proof trace itself, but I did not promote it to `main` yet because it still extends the research-branch-only dynamic hint/action workflow rather than a mainline-supported surface
+
+Next best ideas:
+
+1. find one real ACL2 theorem whose dynamic summary emits multiline `:IN-THEORY`, `:EXPAND`, or `:DO-NOT-INDUCT` hint-events so the new grouped parser is exercised on non-synthetic theory guidance from the binary
+2. capture lifecycle lines like `*1 ... is pushed for proof by induction` and `Thus key checkpoint Goal is COMPLETED!` as structured dynamic progress metadata instead of leaving them only in `raw_excerpt`
+3. start executing the accumulated dynamic replay actions against Lean goals, beginning with `use`, split, disable-definition/theory adjustments, and typed-term-guided induction setup
