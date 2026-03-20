@@ -8,6 +8,7 @@ import ACL2Lean.Workbench
 import ACL2Lean.Evaluator
 import ACL2Lean.Translator
 import ACL2Lean.Logic
+import ACL2Lean.Count
 import ACL2Lean.Tactics
 import ACL2Lean.DSL
 import ACL2Lean.PrettyPrinter
