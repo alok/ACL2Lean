@@ -570,3 +570,40 @@ Next best ideas:
 1. find one real ACL2 theorem whose dynamic summary emits multiline `:IN-THEORY`, `:EXPAND`, or `:DO-NOT-INDUCT` hint-events so the new grouped parser is exercised on non-synthetic theory guidance from the binary
 2. capture lifecycle lines like `*1 ... is pushed for proof by induction` and `Thus key checkpoint Goal is COMPLETED!` as structured dynamic progress metadata instead of leaving them only in `raw_excerpt`
 3. start executing the accumulated dynamic replay actions against Lean goals, beginning with `use`, split, disable-definition/theory adjustments, and typed-term-guided induction setup
+
+## 2026-03-19 Iteration 16
+
+Completed this iteration:
+
+- fixed the dynamic load-plan fallback for `acl2_samples/apply-model-apply.lisp` so the bridge now preloads both the upstream `MODAPP` portcullis and `apply-constraints.lisp` instead of stopping after package setup
+- taught `scripts/acl2_hint_bridge.py` to recover theorem-local `:HINTS` directives from ACL2-emitted `DEFTHM` transcript forms when summary `Hint-events:` are absent or incomplete, including nested `LOCAL (DEFTHM ...)` wrappers
+- merged those recovered hint directives into the existing `hint_events` / structured action path, which now exposes real `:EXPAND` and `:IN-THEORY` guidance from the `apply-model/apply` corpus instead of only synthetic tests or summary-time `:USE` lines
+- added parser regression coverage for both transcript-echoed hint recovery and the new `apply-model/apply` prelude chain, and updated the README / ACL2 spec / proof-mode notes to document the broader dynamic bridge surface
+- tracked this slice in Linear as `ALOK-555`
+
+Verification:
+
+- research branch commit `391e6a2`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `391e6a2`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/apply-model-apply.lisp --theorem 'ev$-def-fact'`
+- research branch commit `391e6a2`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/apply-model-apply.lisp --theorem 'apply$-badgep-hons-get-lemma'`
+- research branch commit `391e6a2`: `LAKE_NO_CACHE=1 lake build`
+- research branch commit `391e6a2`: `uv run python Verify.py`
+- research branch commit `391e6a2`: `./.lake/build/bin/acl2lean hints acl2_samples/apply-model-apply.lisp 'ev$-def-fact' | sed -n '1,200p'`
+- research branch commit `391e6a2`: `./.lake/build/bin/acl2lean hints acl2_samples/apply-model-apply.lisp 'apply$-badgep-hons-get-lemma' | sed -n '1,120p'`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- `ev$-def-fact` is now a concrete dynamic-bridge acceptance test for transcript-echoed theory guidance: ACL2 does not emit a summary `Hint-events:` block for it, but the bridge still recovers the emitted `:EXPAND ((EV$ X A))` directive from the echoed `DEFTHM` form and exposes it as a typed `expand` action
+- `apply$-badgep-hons-get-lemma` now loads through the same `apply-model/apply` path and reaches Lean with a real theorem-local `:IN-THEORY (ENABLE HONS-ASSOC-EQUAL)` action plus the existing warning / splitter / induction guidance
+- this is a real hint-generator-path advance because the bridge now relies on more of ACL2's actual emitted transcript for theory guidance and unlocks a much richer sample corpus than the earlier `apply-prim`-only fallback
+
+Next best ideas:
+
+1. capture lifecycle lines such as `*1 ... is pushed for proof by induction`, `*1 is COMPLETED!`, and `Thus key checkpoint ... is COMPLETED!` as structured dynamic progress metadata instead of leaving them only inside checkpoint text blocks
+2. extend transcript-echo recovery beyond `:HINTS` to other proof-relevant directives ACL2 echoes in theorem-local forms when summary metadata is sparse
+3. start executing the accumulated dynamic replay actions against Lean goals, beginning with `use`, `expand`, split, disable-definition/theory adjustments, and typed-term-guided induction setup
