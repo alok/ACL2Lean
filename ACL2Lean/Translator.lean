@@ -40,6 +40,12 @@ def translateSymbol (s : Symbol) : String :=
   else if name = "append" then "Logic.append"
   else if name = "len" then "Logic.len"
   else if name = "true-listp" then "Logic.trueListp"
+  else if name = "iff" then "Logic.iff"
+  else if name = "force" then "Logic.force"
+  else if name = "double-rewrite" then "Logic.double_rewrite"
+  else if name = "evens" then "Logic.evens"
+  else if name = "odds" then "Logic.odds"
+  else if name = "acl2-count" then "SExpr.acl2Count"
   else if name = "lexorder" then "lexorder"
   else if name = "stringp" then "Logic.stringp"
   else if name = "string-append" then "Logic.string_append"
@@ -59,7 +65,37 @@ def foldNary (fn : String) (args : List String) : String :=
   | [a] => a
   | a :: rest => s!"({fn} {a} {foldNary fn rest})"
 
+/-- Translate an SExpr literal value into Lean SExpr constructor syntax.
+    Used for quoted values so that `'LT` emits the symbol atom, not a function. -/
+partial def translateLiteral : SExpr → String
+  | .nil => "SExpr.nil"
+  | .atom (.symbol s) => s!"(SExpr.atom (.symbol \{ name := \"{s.name}\" }))"
+  | .atom (.number (.int n)) => s!"(SExpr.atom (.number (.int ({n}))))"
+  | .atom (.number (.rational n d)) => s!"(SExpr.atom (.number (.rational ({n}) ({d}))))"
+  | .atom (.number (.decimal m e)) => s!"(SExpr.atom (.number (.decimal ({m}) ({e}))))"
+  | .atom (.string s) => s!"(SExpr.atom (.string \"{s}\"))"
+  | .atom (.bool true) => "(SExpr.atom (.bool true))"
+  | .atom (.bool false) => "(SExpr.atom (.bool false))"
+  | .atom (.keyword k) => s!"(SExpr.atom (.keyword \"{k}\"))"
+  | .cons a b => s!"(SExpr.cons {translateLiteral a} {translateLiteral b})"
+
 mutual
+/-- Translate `(case test (sym1 val1) (sym2 val2) ... (otherwise default))` to nested if/equal. -/
+partial def translateCaseClauses (testStr : String) (clauses : SExpr) (nativeIf : Bool) : String :=
+  match clauses with
+  | .cons (.cons key (.cons val .nil)) rest =>
+    match key with
+    | .atom (.symbol s) =>
+      if s.isNamed "otherwise" || s.isNamed "t" then translateExpr val nativeIf
+      else
+        let keyLit := s!"(SExpr.atom (.symbol \{ name := \"{s.name}\" }))"
+        s!"(if Logic.toBool (Logic.equal {testStr} {keyLit}) then {translateExpr val nativeIf} else {translateCaseClauses testStr rest nativeIf})"
+    | .atom (.bool true) => translateExpr val nativeIf
+    | _ =>
+      s!"(if Logic.toBool (Logic.equal {testStr} {translateExpr key nativeIf}) then {translateExpr val nativeIf} else {translateCaseClauses testStr rest nativeIf})"
+  | .nil => "SExpr.nil"
+  | _ => s!"sorry /- malformed case clause: {repr clauses} -/"
+
 /-- Translate `(cond (test1 val1) (test2 val2) ... (t default))` to nested if. -/
 partial def translateCond (clauses : SExpr) (nativeIf : Bool) : String :=
   match clauses with
@@ -71,6 +107,7 @@ partial def translateCond (clauses : SExpr) (nativeIf : Bool) : String :=
         s!"(if Logic.toBool {translateExpr test nativeIf} then {translateExpr val nativeIf} else {translateCond rest nativeIf})"
       else
         s!"(Logic.if_ {translateExpr test nativeIf} {translateExpr val nativeIf} {translateCond rest nativeIf})"
+    | .atom (.bool true) => translateExpr val nativeIf
     | _ =>
       if nativeIf then
         s!"(if Logic.toBool {translateExpr test nativeIf} then {translateExpr val nativeIf} else {translateCond rest nativeIf})"
@@ -95,7 +132,7 @@ partial def translateExpr (expr : SExpr) (nativeIf : Bool := false) : String :=
   | .cons (.atom (.symbol s)) argsExpr =>
       if s.isNamed "quote" then
         match argsExpr with
-        | .cons v .nil => s!"(Logic.quote_ {repr v})"
+        | .cons v .nil => translateLiteral v
         | _ => s!"sorry /- malformed quote: {repr expr} -/"
       else if s.isNamed "if" then
         match argsExpr with
@@ -107,6 +144,15 @@ partial def translateExpr (expr : SExpr) (nativeIf : Bool := false) : String :=
         | _ => s!"sorry /- malformed if: {repr expr} -/"
       else if s.isNamed "cond" then
         translateCond argsExpr nativeIf
+      else if s.isNamed "case" then
+        match argsExpr with
+        | .cons testExpr clauses =>
+          let testStr := translateExpr testExpr nativeIf
+          translateCaseClauses testStr clauses nativeIf
+        | _ => s!"sorry /- malformed case -/"
+      else if s.isNamed "list" then
+        let args := match argsExpr.toList? with | some l => l.map (translateExpr · nativeIf) | none => []
+        args.foldr (fun a acc => s!"(Logic.cons {a} {acc})") "SExpr.nil"
       else if s.isNamed "1+" || s.isNamed "1+$inline" then
         match argsExpr with
         | .cons x .nil => s!"(Logic.plus {translateExpr x nativeIf} 1)"
@@ -119,6 +165,10 @@ partial def translateExpr (expr : SExpr) (nativeIf : Bool := false) : String :=
         match argsExpr with
         | .cons x .nil => s!"(Logic.car (Logic.cdr {translateExpr x nativeIf}))"
         | _ => s!"sorry /- malformed cadr: {repr expr} -/"
+      else if s.isNamed "cddr" then
+        match argsExpr with
+        | .cons x .nil => s!"(Logic.cdr (Logic.cdr {translateExpr x nativeIf}))"
+        | _ => s!"sorry /- malformed cddr: {repr expr} -/"
       else if s.isNamed "declare" then
         "" -- skip declarations
       else
@@ -177,37 +227,36 @@ def sanitizeName (s : String) : String :=
   let s := s.replace "Logic." ""
   s
 
-/-- Find which formals are recursed on (appear as argument to cdr in recursive calls). -/
-private partial def findRecursiveArg (name : Symbol) (formals : List Symbol) (body : SExpr) : Option String :=
-  -- Simple heuristic: if the body contains `(name ... (cdr formal) ...)`,
-  -- the function recurs on that formal via cdr.
-  -- For the sorting corpus this covers most cases.
+/-- Find which formals are recursed on (appear as argument to cdr in recursive calls).
+    Returns a deduplicated list of formal names that decrease via cdr across all recursive calls. -/
+private partial def findRecursiveArgs (name : Symbol) (formals : List Symbol) (body : SExpr) : List String :=
   let nameStr := name.normalizedName
-  let rec go (expr : SExpr) : Option String :=
+  let rec go (expr : SExpr) (acc : List String) : List String :=
     match expr with
     | .cons (.atom (.symbol s)) args =>
       if s.isNamed nameStr then
         -- Check args for (cdr formal)
         match args.toList? with
         | some argList =>
-          argList.findSome? fun arg =>
+          argList.foldl (fun acc arg =>
             match arg with
             | .cons (.atom (.symbol cdrSym)) (.cons (.atom (.symbol formal)) .nil) =>
               if cdrSym.isNamed "cdr" then
-                formals.find? (fun f => f.isNamed formal.normalizedName) |>.map translateSymbol
-              else none
-            | _ => none
-        | none => none
+                match formals.find? (fun f => f.isNamed formal.normalizedName) with
+                | some f =>
+                  let name := translateSymbol f
+                  if acc.contains name then acc else acc ++ [name]
+                | none => acc
+              else acc
+            | _ => acc) acc
+        | none => acc
       else
         match args.toList? with
-        | some argList => argList.findSome? go
-        | none => none
-    | .cons a b =>
-      match go a with
-      | some r => some r
-      | none => go b
-    | _ => none
-  go body
+        | some argList => argList.foldl (fun acc arg => go arg acc) acc
+        | none => acc
+    | .cons a b => go b (go a acc)
+    | _ => acc
+  go body []
 
 /-- Replace all occurrences of `(Logic.cdr argName)` with `_cdr_argName` in translated body. -/
 private def substituteCdr (body : String) (argName : String) : String :=
@@ -229,17 +278,22 @@ private partial def extractBaseCase (body : SExpr) (argName : String) : Option S
 def translateDefun (name : Symbol) (formals : List Symbol) (body : SExpr) : String :=
   let nameStr := translateSymbol name
   let fmls := String.intercalate " " (formals.map fun s => s!"({translateSymbol s} : SExpr)")
-  match findRecursiveArg name formals body with
-  | some arg =>
-    -- Recursive function: use native `if toBool` for termination + acl2Count
+  let recArgs := findRecursiveArgs name formals body
+  match recArgs with
+  | [arg] =>
+    -- Single recursive arg: use acl2Count for termination
     let bodyStr := translateExpr body (nativeIf := true)
-    -- Detect guard style: endp (negated) or consp (direct)
     let usesEndp := (bodyStr.splitOn "Logic.endp").length > 1
     let decreasingLemma := if usesEndp
       then "ACL2.acl2Count_cdr_lt_of_not_endp"
       else "ACL2.acl2Count_cdr_lt_of_consp"
     s!"def {nameStr} {fmls} : SExpr :=\n  {bodyStr}\ntermination_by SExpr.acl2Count {arg}\ndecreasing_by all_goals exact {decreasingLemma} (by simp_all)"
-  | none =>
+  | args@(_ :: _ :: _) =>
+    -- Multiple recursive args: use sum of acl2Count measures
+    let bodyStr := translateExpr body (nativeIf := true)
+    let measure := String.intercalate " + " (args.map fun a => s!"SExpr.acl2Count {a}")
+    s!"def {nameStr} {fmls} : SExpr :=\n  {bodyStr}\ntermination_by {measure}\ndecreasing_by all_goals simp_all [ACL2.SExpr.acl2Count, ACL2.Logic.cdr, ACL2.Logic.car]; omega"
+  | [] =>
     let bodyStr := translateExpr body
     -- Check if body references the function name at all (simple recursion check)
     let isRecursive := (bodyStr.splitOn nameStr).length > 1

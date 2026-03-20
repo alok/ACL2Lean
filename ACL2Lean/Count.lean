@@ -55,4 +55,32 @@ theorem acl2Count_cdr_lt_of_not_endp {x : SExpr}
   | atom _ => simp [endp, Logic.toBool] at h
   | cons a b => simp [cdr, SExpr.acl2Count]; omega
 
+/-- When cdr of x decreases acl2Count, the sum with any other term also decreases. -/
+theorem acl2Count_cdr_sum_lt_left {x : SExpr} {y : SExpr}
+    (h : Logic.toBool (endp x) = false) :
+    (cdr x).acl2Count + y.acl2Count < x.acl2Count + y.acl2Count := by
+  have := acl2Count_cdr_lt_of_not_endp h
+  omega
+
+/-- When cdr of y decreases acl2Count, the sum with any other term also decreases. -/
+theorem acl2Count_cdr_sum_lt_right {x : SExpr} {y : SExpr}
+    (h : Logic.toBool (endp y) = false) :
+    x.acl2Count + (cdr y).acl2Count < x.acl2Count + y.acl2Count := by
+  have := acl2Count_cdr_lt_of_not_endp h
+  omega
+
+/-- When cdr of x decreases acl2Count via consp, the sum also decreases. -/
+theorem acl2Count_cdr_sum_lt_left_consp {x : SExpr} {y : SExpr}
+    (h : Logic.toBool (consp x) = true) :
+    (cdr x).acl2Count + y.acl2Count < x.acl2Count + y.acl2Count := by
+  have := acl2Count_cdr_lt_of_consp h
+  omega
+
+/-- When cdr of y decreases acl2Count via consp, the sum also decreases. -/
+theorem acl2Count_cdr_sum_lt_right_consp {x : SExpr} {y : SExpr}
+    (h : Logic.toBool (consp y) = true) :
+    x.acl2Count + (cdr y).acl2Count < x.acl2Count + y.acl2Count := by
+  have := acl2Count_cdr_lt_of_consp h
+  omega
+
 end ACL2

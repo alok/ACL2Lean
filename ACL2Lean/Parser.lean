@@ -140,33 +140,34 @@ mutual
     | _ =>
         let (rawTok, rest) := readAtom cs
         let tok := normalizeSymbolName rawTok
-        let atom : Atom :=
-          if tok = "t" then .bool true
-          else if tok = "nil" then .bool false
-          else
-            match tok.toInt? with
-            | some n => .number (.int n)
-            | none =>
-              if tok.contains '/' then
-                let parts := tok.splitOn "/"
-                match parts with
-                | [numStr, denStr] =>
-                    match numStr.toInt?, denStr.toNat? with
-                    | some n, some d => .number (.rational n d)
-                    | _, _ => .symbol { name := tok }
-                | _ => .symbol { name := tok }
-              else if tok.contains '.' then
-                -- very crude decimal parsing
-                .symbol { name := tok }
-              else
-                let parts := rawTok.splitOn "::"
-                match parts with
-                | [pkg, name] =>
-                    .symbol
-                      { package := normalizePackageName pkg
-                        name := normalizeSymbolName name }
-                | _ => .symbol { name := tok }
-        .ok (SExpr.atom atom, rest)
+        if tok = "nil" then .ok (SExpr.nil, rest)
+        else
+          let atom : Atom :=
+            if tok = "t" then .bool true
+            else
+              match tok.toInt? with
+              | some n => .number (.int n)
+              | none =>
+                if tok.contains '/' then
+                  let parts := tok.splitOn "/"
+                  match parts with
+                  | [numStr, denStr] =>
+                      match numStr.toInt?, denStr.toNat? with
+                      | some n, some d => .number (.rational n d)
+                      | _, _ => .symbol { name := tok }
+                  | _ => .symbol { name := tok }
+                else if tok.contains '.' then
+                  -- very crude decimal parsing
+                  .symbol { name := tok }
+                else
+                  let parts := rawTok.splitOn "::"
+                  match parts with
+                  | [pkg, name] =>
+                      .symbol
+                        { package := normalizePackageName pkg
+                          name := normalizeSymbolName name }
+                  | _ => .symbol { name := tok }
+          .ok (SExpr.atom atom, rest)
 end
 
 /-- Parse all s-expressions from a string. -/

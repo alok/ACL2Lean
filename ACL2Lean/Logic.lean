@@ -388,5 +388,49 @@ def trueListp (x : SExpr) : SExpr :=
 @[simp] theorem trueListp_cons (a b : SExpr) :
     trueListp (.cons a b) = trueListp b := rfl
 
+/-- ACL2 `iff` — biconditional. -/
+@[inline, simp] def iff (p q : SExpr) : SExpr :=
+  if toBool p then
+    if toBool q then .atom (.bool true) else .nil
+  else
+    if toBool q then .nil else .atom (.bool true)
+
+/-- ACL2 `force` — identity, used as a proof hint with no logical content. -/
+@[inline, simp] def force (x : SExpr) : SExpr := x
+
+/-- ACL2 `double-rewrite` — identity, used as a proof hint. -/
+@[inline, simp] def double_rewrite (x : SExpr) : SExpr := x
+
+/-- ACL2 `evens` — every other element starting from index 0. -/
+def evens (l : SExpr) : SExpr :=
+  match l with
+  | .cons a (.cons _ d) => .cons a (evens d)
+  | .cons a _ => .cons a .nil
+  | _ => .nil
+
+/-- ACL2 `odds` — every other element starting from index 1. -/
+def odds (l : SExpr) : SExpr := evens (cdr l)
+
+@[simp] theorem iff_def (p q : SExpr) :
+    iff p q = if toBool p then (if toBool q then .atom (.bool true) else .nil)
+              else (if toBool q then .nil else .atom (.bool true)) := rfl
+
+@[simp] theorem force_def (x : SExpr) : force x = x := rfl
+
+@[simp] theorem double_rewrite_def (x : SExpr) : double_rewrite x = x := rfl
+
+@[simp] theorem evens_nil : evens .nil = .nil := rfl
+
+@[simp] theorem evens_cons_cons (a b d : SExpr) :
+    evens (.cons a (.cons b d)) = .cons a (evens d) := rfl
+
+@[simp] theorem evens_cons_nil (a : SExpr) :
+    evens (.cons a .nil) = .cons a .nil := rfl
+
+@[simp] theorem evens_cons_atom (a : SExpr) (at_ : Atom) :
+    evens (.cons a (.atom at_)) = .cons a .nil := rfl
+
+@[simp] theorem odds_def (l : SExpr) : odds l = evens (cdr l) := rfl
+
 end Logic
 end ACL2

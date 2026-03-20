@@ -74,15 +74,16 @@ def main (args : List String) : IO Unit := do
           for ev in ACL2.Event.flattenList evs do
             match ev with
             | .includeBook bookPath _ =>
-                -- Convert ACL2 book path to Lean module name
-                -- "perm" -> "ACL2Lean.Translated.Perm"
-                -- "ordered-perms" -> "ACL2Lean.Translated.OrderedPerms"
-                let parts := bookPath.splitOn "-"
-                let capitalized := parts.map fun p =>
+                -- Extract the base filename (after last /) and PascalCase it
+                -- "perm" -> "Perm", "ordered-perms" -> "OrderedPerms"
+                -- "sorting/perm" -> "Perm", "arithmetic-3/extra/top-ext" -> "TopExt"
+                let baseBook := match bookPath.splitOn "/" with
+                  | [] => bookPath
+                  | parts => parts.getLast!
+                let baseParts := baseBook.splitOn "-"
+                let capitalized := baseParts.map fun p =>
                   if p.isEmpty then p
-                  else
-                    let chars := p.toList
-                    String.mk (chars.head!.toUpper :: chars.tail!)
+                  else String.ofList (p.toList.head!.toUpper :: p.toList.tail!)
                 let moduleName := String.intercalate "" capitalized
                 IO.println s!"import ACL2Lean.Translated.{moduleName}"
             | _ => pure ()

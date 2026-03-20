@@ -44,7 +44,9 @@ macro "acl2_simp" : tactic =>
                  Logic.integerp, Logic.posp, Logic.natp, Logic.implies, Logic.and,
                  Logic.or, Logic.not, Logic.expt, Logic.le, Logic.ge, Logic.gt,
                  Logic.first, Logic.second, Logic.endp,
-                 Logic.append, Logic.len, Logic.trueListp])
+                 Logic.append, Logic.len, Logic.trueListp,
+                 Logic.iff, Logic.force, Logic.double_rewrite,
+                 Logic.evens, Logic.odds])
 
 macro "acl2_grind" : tactic =>
   `(tactic| (acl2_simp; try grind))
