@@ -189,6 +189,14 @@ partial def collectVarsCond (clauses : SExpr) (acc : List String) : List String 
     collectVarsCond rest acc
   | _ => acc
 
+/-- Collect variables from case clauses, skipping key symbols. -/
+partial def collectVarsCaseClauses (clauses : SExpr) (acc : List String) : List String :=
+  match clauses with
+  | .cons (.cons _ (.cons val .nil)) rest =>
+    let acc := collectVars val acc
+    collectVarsCaseClauses rest acc
+  | _ => acc
+
 partial def collectVars (expr : SExpr) (acc : List String := []) : List String :=
   match expr with
   | .atom (.symbol s) =>
@@ -209,6 +217,16 @@ partial def collectVars (expr : SExpr) (acc : List String := []) : List String :
         | _ => acc
       else if s.isNamed "cond" then
         collectVarsCond argsExpr acc
+      else if s.isNamed "case" then
+        match argsExpr with
+        | .cons testExpr clauses =>
+          let acc := collectVars testExpr acc
+          collectVarsCaseClauses clauses acc
+        | _ => acc
+      else if s.isNamed "list" then
+        match argsExpr.toList? with
+        | some args => args.foldl (fun a e => collectVars e a) acc
+        | none => acc
       else if s.isNamed "declare" then
         acc
       else

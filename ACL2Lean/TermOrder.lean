@@ -119,7 +119,8 @@ def term_order (term1 term2 : SExpr) : SExpr :=
   else if pfc1 > pfc2 then .nil
   else lexorder term1 term2
 
-/-- Port of ACL2's `merge-term-order`: merge two term-ordered lists. -/
+/-- Port of ACL2's `merge-term-order`: merge two term-ordered lists.
+    ACL2: `(cond ((endp l1) l2) ((endp l2) l1) ...)` -/
 def merge_term_order (l1 l2 : SExpr) : SExpr :=
   match l1, l2 with
   | .cons a1 r1, .cons a2 r2 =>
@@ -127,8 +128,8 @@ def merge_term_order (l1 l2 : SExpr) : SExpr :=
       .cons a1 (merge_term_order r1 (.cons a2 r2))
     else
       .cons a2 (merge_term_order (.cons a1 r1) r2)
-  | _, .nil | _, .atom _ => l1
-  | _, _ => l2
+  | .cons _ _, _ => l1 -- l1 is cons, l2 is endp → return l1
+  | _, _ => l2 -- l1 is endp → return l2
 termination_by l1.acl2Count + l2.acl2Count
 decreasing_by all_goals simp [SExpr.acl2Count]; omega
 
