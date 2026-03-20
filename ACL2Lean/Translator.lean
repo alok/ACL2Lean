@@ -273,6 +273,34 @@ private partial def findRecursiveArgs (name : Symbol) (formals : List Symbol) (b
     | _ => acc
   go body []
 
+/-- Find if a recursive call uses `(evens formal)` or `(odds formal)` as an argument. -/
+private partial def findEvensOddsArg (name : Symbol) (formals : List Symbol) (body : SExpr) : Option String :=
+  let nameStr := name.normalizedName
+  let rec go (expr : SExpr) : Option String :=
+    match expr with
+    | .cons (.atom (.symbol s)) args =>
+      if s.isNamed nameStr then
+        match args.toList? with
+        | some argList =>
+          argList.findSome? fun arg =>
+            match arg with
+            | .cons (.atom (.symbol fn)) (.cons (.atom (.symbol formal)) .nil) =>
+              if fn.isNamed "evens" || fn.isNamed "odds" then
+                formals.find? (fun f => f.isNamed formal.normalizedName) |>.map translateSymbol
+              else none
+            | _ => none
+        | none => none
+      else
+        match args.toList? with
+        | some argList => argList.findSome? go
+        | none => none
+    | .cons a b =>
+      match go a with
+      | some r => some r
+      | none => go b
+    | _ => none
+  go body
+
 /-- Replace all occurrences of `(Logic.cdr argName)` with `_cdr_argName` in translated body. -/
 private def substituteCdr (body : String) (argName : String) : String :=
   body.replace s!"(Logic.cdr {argName})" s!"_cdr_{argName}"
@@ -309,13 +337,19 @@ def translateDefun (name : Symbol) (formals : List Symbol) (body : SExpr) : Stri
     let measure := String.intercalate " + " (args.map fun a => s!"SExpr.acl2Count {a}")
     s!"def {nameStr} {fmls} : SExpr :=\n  {bodyStr}\ntermination_by {measure}\ndecreasing_by all_goals simp_all [ACL2.SExpr.acl2Count, ACL2.Logic.cdr, ACL2.Logic.car]; omega"
   | [] =>
-    let bodyStr := translateExpr body
-    -- Check if body references the function name at all (simple recursion check)
-    let isRecursive := (bodyStr.splitOn nameStr).length > 1
-    if isRecursive then
-      s!"partial def {nameStr} {fmls} : SExpr :=\n  {bodyStr}"
-    else
-      s!"def {nameStr} {fmls} : SExpr :=\n  {bodyStr}"
+    -- Check for evens/odds recursion pattern (e.g. msort, merge-sort-term-order)
+    match findEvensOddsArg name formals body with
+    | some arg =>
+      let bodyStr := translateExpr body (nativeIf := true)
+      s!"def {nameStr} {fmls} : SExpr :=\n  {bodyStr}\ntermination_by SExpr.acl2Count {arg}\ndecreasing_by all_goals first | exact ACL2.acl2Count_evens_lt (by simp_all) (by simp_all) | exact ACL2.acl2Count_odds_lt (by simp_all) (by simp_all)"
+    | none =>
+      let bodyStr := translateExpr body
+      -- Check if body references the function name at all (simple recursion check)
+      let isRecursive := (bodyStr.splitOn nameStr).length > 1
+      if isRecursive then
+        s!"partial def {nameStr} {fmls} : SExpr :=\n  {bodyStr}"
+      else
+        s!"def {nameStr} {fmls} : SExpr :=\n  {bodyStr}"
 
 private def renderMetadataComment (info : TheoremInfo) : String :=
   let ruleClassLines :=

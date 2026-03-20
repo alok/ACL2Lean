@@ -83,4 +83,55 @@ theorem acl2Count_cdr_sum_lt_right_consp {x : SExpr} {y : SExpr}
   have := acl2Count_cdr_lt_of_consp h
   omega
 
+/-- acl2Count of evens is at most acl2Count of the input. -/
+theorem acl2Count_evens_le (x : SExpr) : (evens x).acl2Count ≤ x.acl2Count := by
+  cases x with
+  | nil => simp [evens]
+  | atom _ => simp [evens]
+  | cons a d =>
+    cases d with
+    | nil => simp [evens, SExpr.acl2Count]
+    | atom _ => simp [evens, SExpr.acl2Count]
+    | cons b d' =>
+      simp only [evens, SExpr.acl2Count]
+      have ih := acl2Count_evens_le d'
+      omega
+termination_by x.acl2Count
+decreasing_by simp [SExpr.acl2Count]; omega
+
+/-- acl2Count of evens is strictly less when the list has 2+ elements. -/
+theorem acl2Count_evens_lt {x : SExpr}
+    (h1 : Logic.toBool (endp x) = false)
+    (h2 : Logic.toBool (endp (cdr x)) = false) :
+    (evens x).acl2Count < x.acl2Count := by
+  cases x with
+  | nil => simp [endp, Logic.toBool] at h1
+  | atom _ => simp [endp, Logic.toBool] at h1
+  | cons a d =>
+    cases d with
+    | nil => simp [cdr, endp, Logic.toBool] at h2
+    | atom _ => simp [cdr, endp, Logic.toBool] at h2
+    | cons b d' =>
+      simp only [evens, SExpr.acl2Count]
+      have ih := acl2Count_evens_le d'
+      omega
+
+/-- acl2Count of odds is strictly less when the list has 2+ elements. -/
+theorem acl2Count_odds_lt {x : SExpr}
+    (h1 : Logic.toBool (endp x) = false)
+    (h2 : Logic.toBool (endp (cdr x)) = false) :
+    (odds x).acl2Count < x.acl2Count := by
+  cases x with
+  | nil => simp [endp, Logic.toBool] at h1
+  | atom _ => simp [endp, Logic.toBool] at h1
+  | cons a d =>
+    cases d with
+    | nil => simp [cdr, endp, Logic.toBool] at h2
+    | atom _ => simp [cdr, endp, Logic.toBool] at h2
+    | cons b d' =>
+      simp only [odds, cdr, SExpr.acl2Count]
+      have ih := acl2Count_evens_le (.cons b d')
+      simp [SExpr.acl2Count] at ih
+      omega
+
 end ACL2

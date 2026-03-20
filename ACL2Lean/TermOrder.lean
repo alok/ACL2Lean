@@ -132,12 +132,17 @@ termination_by l1.acl2Count + l2.acl2Count
 decreasing_by all_goals simp [SExpr.acl2Count]; omega
 
 /-- Port of ACL2's `merge-sort-term-order`: sort a list by term-order. -/
-partial def merge_sort_term_order (l : SExpr) : SExpr :=
+def merge_sort_term_order (l : SExpr) : SExpr :=
   match l with
-  | .cons _ (.cons _ _) =>
+  | .cons a (.cons b d) =>
     merge_term_order
-      (merge_sort_term_order (evens l))
-      (merge_sort_term_order (odds l))
+      (merge_sort_term_order (evens (.cons a (.cons b d))))
+      (merge_sort_term_order (odds (.cons a (.cons b d))))
   | _ => l
+termination_by l.acl2Count
+decreasing_by
+  all_goals simp only [SExpr.acl2Count, evens, odds, cdr]
+  · have := acl2Count_evens_le d; omega
+  · have := acl2Count_evens_le (.cons b d); simp [SExpr.acl2Count] at this; omega
 
 end ACL2
