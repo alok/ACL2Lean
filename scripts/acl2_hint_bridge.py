@@ -629,25 +629,43 @@ def transcript_goal_hint_events(lines: list[str], theorem_name: str) -> list[tup
     return dedup_goal_events(events)
 
 
-def parse_hint_event_action(
+def split_use_payload_items(payload: str) -> list[str]:
+    stripped = payload.strip()
+    if not stripped:
+        return []
+    if not stripped.startswith("("):
+        return [stripped]
+
+    entries = split_top_level_entries(stripped)
+    if not entries:
+        return [stripped]
+
+    # `:USE` accepts a single hint spec like `(:INSTANCE ...)` as well as a list
+    # of theorem names / hint specs. Keep the single-spec form intact, but split
+    # list payloads into one replay action per cited theorem or instance.
+    if stripped.startswith("(("):
+        return entries
+    if entries[0].startswith(":"):
+        return [stripped]
+    return entries
+
+
+def parse_hint_event_actions(
     event: str,
     *,
     goal_target: str = "",
     source: str = "hint-event",
-) -> dict[str, object]:
+) -> list[dict[str, object]]:
     event_text = inline_text(event)
     match = HINT_EVENT_RE.match(event_text)
     if match is None:
         summary = event_text if not goal_target else f"{event_text} in {goal_target}"
         targets = [] if not goal_target else [goal_target]
         detail = event if not goal_target else f"{goal_target}: {event}"
-        return make_action("hint-event", source, summary, detail, targets=targets)
+        return [make_action("hint-event", source, summary, detail, targets=targets)]
 
     keyword = match.group(1).lower()
     payload = inline_text(match.group(2))
-    targets = [payload] if payload else []
-    if goal_target:
-        targets.append(goal_target)
     detail = event if not goal_target else f"{goal_target}: {event}"
 
     def with_goal(summary: str) -> str:
@@ -656,30 +674,54 @@ def parse_hint_event_action(
         return summary
 
     if keyword == "use":
-        return make_action("use", source, with_goal(f"use {payload}"), detail, targets=targets)
+        actions: list[dict[str, object]] = []
+        for use_payload in split_use_payload_items(payload):
+            targets = [use_payload] if use_payload else []
+            if goal_target:
+                targets.append(goal_target)
+            actions.append(
+                make_action(
+                    "use",
+                    source,
+                    with_goal(f"use {use_payload}"),
+                    detail,
+                    targets=targets,
+                )
+            )
+        return actions
+
+    targets = [payload] if payload else []
+    if goal_target:
+        targets.append(goal_target)
     if keyword == "in-theory":
-        return make_action(
-            "in-theory",
-            source,
-            with_goal(f"adjust theory {payload}"),
-            detail,
-            targets=targets,
-        )
+        return [
+            make_action(
+                "in-theory",
+                source,
+                with_goal(f"adjust theory {payload}"),
+                detail,
+                targets=targets,
+            )
+        ]
     if keyword == "cases":
-        return make_action(
-            "cases",
+        return [
+            make_action(
+                "cases",
+                source,
+                with_goal(f"split cases {payload}"),
+                detail,
+                targets=targets,
+            )
+        ]
+    return [
+        make_action(
+            keyword,
             source,
-            with_goal(f"split cases {payload}"),
+            with_goal(f"{keyword} {payload}".strip()),
             detail,
             targets=targets,
         )
-    return make_action(
-        keyword,
-        source,
-        with_goal(f"{keyword} {payload}".strip()),
-        detail,
-        targets=targets,
-    )
+    ]
 
 
 def extract_observation_actions(observations: list[str]) -> list[dict[str, object]]:
@@ -862,11 +904,11 @@ def collect_actions(
     inductions: list[str],
     observations: list[str],
 ) -> list[dict[str, object]]:
-    actions = [parse_hint_event_action(event) for event in summary_hint_events]
-    actions.extend(
-        parse_hint_event_action(event, goal_target=goal_target, source="transcript-hint")
-        for goal_target, event in transcript_goal_hints
-    )
+    actions: list[dict[str, object]] = []
+    for event in summary_hint_events:
+        actions.extend(parse_hint_event_actions(event))
+    for goal_target, event in transcript_goal_hints:
+        actions.extend(parse_hint_event_actions(event, goal_target=goal_target, source="transcript-hint"))
     actions.extend(extract_splitter_actions(splitter_rules))
     actions.extend(extract_warning_actions(warnings))
     actions.extend(extract_induction_actions(inductions))

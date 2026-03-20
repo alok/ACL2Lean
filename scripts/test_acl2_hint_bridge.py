@@ -668,6 +668,41 @@ class HintBridgeParsingTests(unittest.TestCase):
             )
         )
 
+    def test_summary_use_lists_split_into_individual_actions(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM SUMMARY-USE-LIST ...)
+            Rules: NIL
+            Hint-events: ((:USE (BASE-LEMMA HELPER-LEMMA))
+                          (:USE ((:INSTANCE FOO (X A))
+                                 (:INSTANCE BAR (Y B)))))
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             SUMMARY-USE-LIST
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "summary-use-list")
+        use_targets = [
+            tuple(action["targets"])
+            for action in artifact["actions"]
+            if action["kind"] == "use"
+        ]
+        self.assertEqual(
+            use_targets,
+            [
+                ("BASE-LEMMA",),
+                ("HELPER-LEMMA",),
+                ("(:INSTANCE FOO (X A))",),
+                ("(:INSTANCE BAR (Y B))",),
+            ],
+        )
+
     def test_transcript_echoed_hint_events_are_recovered_from_defthm_form(self) -> None:
         transcript = dedent(
             """
@@ -737,6 +772,51 @@ class HintBridgeParsingTests(unittest.TestCase):
                 and action["targets"] == ["(ENABLE HONS-ASSOC-EQUAL)", "Goal"]
                 for action in artifact["actions"]
             )
+        )
+
+    def test_transcript_echoed_use_lists_split_and_keep_goal_targets(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>>
+            (DEFTHM TRANSCRIPT-USE-LIST
+                     (IMPLIES (P X) (Q X))
+                     :HINTS (("Goal" :USE ((:INSTANCE BASE-LEMMA (X X))
+                                           (:INSTANCE HELPER-LEMMA (Y Y))))
+                             ("Subgoal 2" :USE (SIDE-LEMMA AUX-LEMMA))))
+
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM TRANSCRIPT-USE-LIST ...)
+            Rules: NIL
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             TRANSCRIPT-USE-LIST
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "transcript-use-list")
+        transcript_uses = {
+            (action["summary"], tuple(action["targets"]))
+            for action in artifact["actions"]
+            if action["kind"] == "use" and action["source"] == "transcript-hint"
+        }
+        self.assertEqual(
+            transcript_uses,
+            {
+                (
+                    "use (:INSTANCE BASE-LEMMA (X X)) in Goal",
+                    ("(:INSTANCE BASE-LEMMA (X X))", "Goal"),
+                ),
+                (
+                    "use (:INSTANCE HELPER-LEMMA (Y Y)) in Goal",
+                    ("(:INSTANCE HELPER-LEMMA (Y Y))", "Goal"),
+                ),
+                ("use SIDE-LEMMA in Subgoal 2", ("SIDE-LEMMA", "Subgoal 2")),
+                ("use AUX-LEMMA in Subgoal 2", ("AUX-LEMMA", "Subgoal 2")),
+            },
         )
 
     def test_transcript_echoed_hint_actions_preserve_goal_targets(self) -> None:
