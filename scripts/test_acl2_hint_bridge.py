@@ -149,6 +149,75 @@ class HintBridgeParsingTests(unittest.TestCase):
             },
         )
 
+    def test_non_rec_warnings_become_disable_definition_actions(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>
+            ACL2 Warning [Non-rec] in ( DEFTHM NEXT-UNIQUE ...):  A :REWRITE rule
+            generated from NEXT-UNIQUE will be triggered only by terms containing
+            the function symbol NEXT, which has a non-recursive definition.  Unless
+            this definition is disabled, this rule is unlikely ever to be used.
+
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM NEXT-UNIQUE ...)
+            Rules: NIL
+            Warnings:  Non-rec
+            Time:  0.01 seconds (prove: 0.00, print: 0.00, other: 0.01)
+             NEXT-UNIQUE
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "next-unique")
+        self.assertTrue(
+            any(
+                action["kind"] == "disable-definition"
+                and action["summary"] == "disable (:DEFINITION NEXT) so rewrite from NEXT-UNIQUE can fire"
+                and action["targets"] == ["(:DEFINITION NEXT)", "NEXT-UNIQUE"]
+                for action in artifact["actions"]
+            )
+        )
+
+    def test_splitter_rules_become_split_actions(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>
+            Goal''
+
+            Splitter note (see :DOC splitter) for Goal'' (2 subgoals).
+              if-intro: ((:DEFINITION GCD-PROG!))
+
+            Subgoal 2
+            Subgoal 1
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM EXISTS-GCD-PROG ...)
+            Rules: NIL
+            Splitter rules (see :DOC splitter):
+              if-intro: ((:DEFINITION GCD-PROG!))
+            Time:  0.06 seconds (prove: 0.06, print: 0.00, other: 0.00)
+             EXISTS-GCD-PROG
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "exists-gcd-prog")
+        self.assertEqual(artifact["splitter_rules"], ["if-intro: ((:DEFINITION GCD-PROG!))"])
+        self.assertTrue(
+            any(
+                action["kind"] == "split-goal"
+                and action["summary"] == "split using if-intro with ((:DEFINITION GCD-PROG!))"
+                and action["targets"] == ["if-intro", "((:DEFINITION GCD-PROG!))"]
+                for action in artifact["actions"]
+            )
+        )
+
     def test_observations_checkpoints_and_induction_blocks(self) -> None:
         transcript = dedent(
             """

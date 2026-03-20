@@ -36,6 +36,12 @@ INDUCTION_TERM_RE = re.compile(
     re.IGNORECASE,
 )
 INDUCTION_RULE_RE = re.compile(r":induction rule\s+([^\s.]+)", re.IGNORECASE)
+NONREC_WARNING_RE = re.compile(
+    r":REWRITE rule generated from\s+([^\s]+)\s+will be triggered only by terms containing\s+"
+    r"the function symbol\s+([^\s,]+)",
+    re.IGNORECASE,
+)
+SPLITTER_RULE_RE = re.compile(r"^\s*([^:]+):\s*(.+?)\s*$")
 
 
 def normalize_name(name: str) -> str:
@@ -441,6 +447,41 @@ def extract_warning_actions(warnings: list[str]) -> list[dict[str, object]]:
                     targets=[theorem_name, rule_name],
                 )
             )
+
+        nonrec_match = NONREC_WARNING_RE.search(warning_text)
+        if nonrec_match:
+            theorem_name, function_name = nonrec_match.groups()
+            definition_rune = f"(:DEFINITION {function_name})"
+            actions.append(
+                make_action(
+                    "disable-definition",
+                    "warning",
+                    f"disable {definition_rune} so rewrite from {theorem_name} can fire",
+                    warning,
+                    targets=[definition_rune, theorem_name],
+                )
+            )
+    return actions
+
+
+def extract_splitter_actions(splitter_rules: list[str]) -> list[dict[str, object]]:
+    actions: list[dict[str, object]] = []
+    for rule in splitter_rules:
+        rule_text = inline_text(rule)
+        match = SPLITTER_RULE_RE.match(rule_text)
+        if match is None:
+            actions.append(make_action("splitter", "splitter", f"apply splitter {rule_text}", rule))
+            continue
+        splitter_name, payload = match.groups()
+        actions.append(
+            make_action(
+                "split-goal",
+                "splitter",
+                f"split using {splitter_name.strip()} with {payload.strip()}",
+                rule,
+                targets=[splitter_name.strip(), payload.strip()],
+            )
+        )
     return actions
 
 
@@ -466,10 +507,12 @@ def extract_induction_actions(inductions: list[str]) -> list[dict[str, object]]:
 
 def collect_actions(
     hint_events: list[str],
+    splitter_rules: list[str],
     warnings: list[str],
     inductions: list[str],
 ) -> list[dict[str, object]]:
     actions = [parse_hint_event_action(event) for event in hint_events]
+    actions.extend(extract_splitter_actions(splitter_rules))
     actions.extend(extract_warning_actions(warnings))
     actions.extend(extract_induction_actions(inductions))
     return dedup_actions(actions)
@@ -638,7 +681,7 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
         "warning_kinds": summary["warning_kinds"],
         "summary_time": summary["summary_time"],
         "prover_steps": summary["prover_steps"],
-        "actions": collect_actions(summary["hint_events"], warnings, inductions),
+        "actions": collect_actions(summary["hint_events"], summary["splitter_rules"], warnings, inductions),
         "checkpoints": (
             lambda explicit: explicit + collect_trace_checkpoints(
                 excerpt, {checkpoint["label"] for checkpoint in explicit}
