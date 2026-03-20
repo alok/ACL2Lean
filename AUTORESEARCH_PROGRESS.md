@@ -1104,3 +1104,45 @@ Next best ideas:
 1. start executing dynamic `use`, theory, induction, and clause-processor actions against Lean replay state instead of only surfacing them structurally
 2. chase the remaining theorem-locality gap for checkpoints/progress inside macro-generated ACL2 transcripts where helper subproofs can still share one prompt
 3. surface and normalize real dynamic `:cases` payloads once a corpus theorem emits them or another ACL2 path exposes them cleanly
+
+## 2026-03-20 Iteration 30
+
+Completed this iteration:
+
+- taught `scripts/acl2_hint_bridge.py` to recover transcript-echoed theorem-level ACL2 directives outside `:HINTS`, starting with `:OTF-FLG`, by reading the echoed `DEFTHM` form and emitting a dedicated `transcript-option/otf-flg` dynamic action instead of dropping that proof-search guidance completely
+- added focused parser coverage for the new path, proving that an echoed `(DEFTHM ... :OTF-FLG T ...)` transcript now yields `set otf-flg T` as a structured action
+- extended `ACL2Lean.HintBridge` with Lean-side `otf-flg` payload parsing and structured rendering, so the CLI no longer treats that directive as an opaque flat summary when ACL2 exposes it
+- updated `ACL2Lean.ProofMode` so dynamic hint snapshots record `action-otf-flg ...` notes alongside the existing theory / clause-processor / induction payload surfaces
+- documented the broader dynamic hint surface in `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md`, and tracked the slice in Linear as `ALOK-569`
+
+Verification:
+
+- research branch commit `94814e2`: `lean-lsp-mcp` diagnostics on `ACL2Lean/HintBridge.lean`
+- research branch commit `94814e2`: `lean-lsp-mcp` diagnostics on `ACL2Lean/ProofMode.lean`
+- research branch commit `94814e2`: `PYTHONPATH=scripts uv run python -m unittest scripts.test_acl2_hint_bridge.HintBridgeParsingTests.test_transcript_echoed_otf_flg_option_is_recovered scripts.test_acl2_hint_bridge.HintBridgeParsingTests.test_transcript_echoed_induct_hint_event_is_recovered scripts.test_acl2_hint_bridge.HintBridgeParsingTests.test_transcript_echoed_hint_actions_preserve_goal_targets`
+- research branch commit `94814e2`: `PYTHONPATH=scripts uv run python -m unittest scripts.test_acl2_hint_bridge`
+- research branch commit `94814e2`: `lake build ACL2Lean.HintBridge ACL2Lean.ProofMode Main`
+- research branch commit `94814e2`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp 'mod-+-*-floor-gcd' | sed -n '1,160p'`
+- research branch commit `94814e2`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/die-hard-work.lisp --theorem 'mod-+-*-floor-gcd' | rg -n 'otf-flg|OTF-FLG|transcript-option|actions|summary'`
+- research branch commit `94814e2`: `uv run python Verify.py`
+- research branch commit `94814e2`: `lake build`
+- pushed research branch commit `94814e2` to `origin/autoresearch/mar19-acl2lean`
+- research branch commit `94814e2`: `lake exe acl2lean ci autoresearch/mar19-acl2lean` showed GitHub Actions run `23333045123` in progress for the pushed feature commit
+- `gh run watch 23333045123 --exit-status` succeeded for GitHub Actions run `23333045123`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- this closes one of the explicitly deferred hint-generator follow-ups from the previous notes: at least one real ACL2 transcript (`mod-+-*-floor-gcd`) does expose theorem-level `:OTF-FLG`, and Lean now keeps that search configuration as structured oracle metadata instead of leaving it buried in `raw_excerpt`
+- the new path is intentionally narrow: only transcript-exposed theorem options are surfaced, and only `:OTF-FLG` is normalized so far, because that is the directive the current corpus proves is both real and replay-relevant
+- I did not promote this slice to `main` yet because it still deepens the research-branch-only dynamic hint/proof-mode workflow rather than a surface already carried on `main`
+
+Next best ideas:
+
+1. start executing dynamic `use`, theory, induction, clause-processor, and now `otf-flg` actions against Lean replay state instead of only surfacing them structurally
+2. scan the corpus for any other theorem-level transcript directives that ACL2 actually echoes consistently enough to justify promotion into first-class dynamic actions
+3. decide whether the recent dynamic hint/proof-mode slices are coherent enough to promote together to `main` as one stable replay-infrastructure batch
