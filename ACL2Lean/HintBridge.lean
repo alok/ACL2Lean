@@ -101,10 +101,45 @@ private def parseSingleSExpr? (text : String) : Option SExpr :=
   | .ok [expr] => some expr
   | _ => none
 
+@[inline] private def renderIndent (indent : Nat) : String :=
+  String.ofList (List.replicate indent ' ')
+
+private def renderLabeledItems (label : String) (items : List String) (indent : Nat := 0) : List String :=
+  match items with
+  | [] => []
+  | [item] => [s!"{renderIndent indent}{label}: {item}"]
+  | _ =>
+      s!"{renderIndent indent}{label}:" ::
+        items.map (fun item => s!"{renderIndent (indent + 2)}- {item}")
+
+private def payloadExprsFromPayload (payload : String) : List SExpr :=
+  let trimmed := payload.trimAscii.toString
+  if trimmed.isEmpty then
+    []
+  else
+    match parseSingleSExpr? payload with
+    | none => []
+    | some expr =>
+        if trimmed.startsWith "((" then
+          match expr.toList? with
+          | some exprs => exprs
+          | none => [expr]
+        else
+          [expr]
+
 namespace DynamicAction
 
 def payload? (action : DynamicAction) : Option String :=
   action.targets.head?
+
+def payloadExpr? (action : DynamicAction) : Option SExpr := do
+  let payload ← action.payload?
+  parseSingleSExpr? payload
+
+def payloadExprs (action : DynamicAction) : List SExpr :=
+  match action.payload? with
+  | some payload => payloadExprsFromPayload payload
+  | none => []
 
 def theoryExpr? (action : DynamicAction) : Option TheoryExpr := do
   if action.kind != "in-theory" then
@@ -123,6 +158,41 @@ def theoryLines (action : DynamicAction) (indent : Nat := 0) : List String :=
   match action.theoryExpr? with
   | some theoryExpr => TheoryExpr.labeledLines "theory" theoryExpr indent
   | none => []
+
+def expandExprs (action : DynamicAction) : List SExpr :=
+  if action.kind = "expand" then
+    action.payloadExprs
+  else
+    []
+
+def expandItems (action : DynamicAction) : List String :=
+  action.expandExprs.map toString
+
+def casesExprs (action : DynamicAction) : List SExpr :=
+  if action.kind = "cases" then
+    action.payloadExprs
+  else
+    []
+
+def casesItems (action : DynamicAction) : List String :=
+  action.casesExprs.map toString
+
+def doNotInductExpr? (action : DynamicAction) : Option SExpr := do
+  if action.kind != "do-not-induct" then
+    none
+  else
+    action.payloadExpr?
+
+def structuredLines (action : DynamicAction) (indent : Nat := 0) : List String :=
+  match action.kind with
+  | "in-theory" => action.theoryLines indent
+  | "expand" => renderLabeledItems "expand" action.expandItems indent
+  | "cases" => renderLabeledItems "cases" action.casesItems indent
+  | "do-not-induct" =>
+      match action.doNotInductExpr? with
+      | some expr => renderLabeledItems "do-not-induct" [toString expr] indent
+      | none => []
+  | _ => []
 
 end DynamicAction
 
@@ -154,7 +224,7 @@ private def renderActionLines (action : DynamicAction) : List String :=
   [s!"  [{action.source}/{action.kind}] {action.summary}"] ++
     goalLine ++
     targetLine ++
-    (action.theoryLines 4)
+    (action.structuredLines 4)
 
 private def renderActions (actions : List DynamicAction) : List String :=
   if actions.isEmpty then
@@ -230,6 +300,37 @@ def renderLines (artifact : DynamicArtifact) : List String :=
             ] ++ acc)
           []
   header ++ loadNote ++ loadSteps ++ summary ++ summaryRules ++ hintEvents ++ splitterRules ++ warningKinds ++ summaryTime ++ proverSteps ++ actions ++ observations ++ warnings ++ inductions ++ progress ++ checkpoints
+
+private def dynamicExpandPayloadParses : Bool :=
+  let action : DynamicAction :=
+    { kind := "expand"
+      source := "transcript-hint"
+      summary := "expand ((EV$ X A)) in Goal"
+      goal_target := some "Goal"
+      targets := ["((EV$ X A))", "Goal"]
+      detail := "Goal: (:EXPAND ((EV$ X A)))"
+    }
+  action.expandItems.length == 1 &&
+    (action.expandItems.headD "").contains "ev$" &&
+    (action.structuredLines 2).any (fun line => line.contains "expand:" && line.contains "ev$")
+
+#guard dynamicExpandPayloadParses
+
+private def dynamicDoNotInductPayloadParses : Bool :=
+  let action : DynamicAction :=
+    { kind := "do-not-induct"
+      source := "transcript-hint"
+      summary := "do-not-induct T in Goal"
+      goal_target := some "Goal"
+      targets := ["T", "Goal"]
+      detail := "Goal: (:DO-NOT-INDUCT T)"
+    }
+  (match action.doNotInductExpr? with
+    | some expr => toString expr = "T"
+    | none => false) &&
+    (action.structuredLines 2).any (fun line => line.contains "do-not-induct:" && line.contains "T")
+
+#guard dynamicDoNotInductPayloadParses
 
 end HintBridge
 end ACL2

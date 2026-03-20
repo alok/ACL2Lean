@@ -192,8 +192,7 @@ private def checkpointTargetedActions
   artifact.actions.filter (fun action => action.goal_target = some checkpoint.label)
 
 private def targetedActionDetailLines (action : ACL2.HintBridge.DynamicAction) : List String :=
-  [s!"- {action.summary}"] ++
-    (action.theoryItems.map (fun item => s!"    theory: {item}"))
+  [s!"- {action.summary}"] ++ action.structuredLines 4
 
 private def dynamicCheckpointDetail
     (artifact : ACL2.HintBridge.DynamicArtifact)
@@ -281,7 +280,19 @@ private def actionNote (action : ACL2.HintBridge.DynamicAction) : String :=
     match action.theoryItems with
     | [] => ""
     | items => " {theory: " ++ String.intercalate "; " items ++ "}"
-  s!"action {action.source}/{action.kind}{goalTarget}: {action.summary}{targets}{theory}"
+  let expand :=
+    match action.expandItems with
+    | [] => ""
+    | items => " {expand: " ++ String.intercalate "; " items ++ "}"
+  let cases :=
+    match action.casesItems with
+    | [] => ""
+    | items => " {cases: " ++ String.intercalate "; " items ++ "}"
+  let doNotInduct :=
+    match action.doNotInductExpr? with
+    | some expr => " {do-not-induct: " ++ toString expr ++ "}"
+    | none => ""
+  s!"action {action.source}/{action.kind}{goalTarget}: {action.summary}{targets}{theory}{expand}{cases}{doNotInduct}"
 
 private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
   dedupStrings <|
@@ -334,6 +345,20 @@ private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.Dynam
       (artifact.actions.foldr
         (fun action acc =>
           (action.theoryItems.map (fun item => s!"action-theory {action.source}/{action.kind}: {item}")) ++ acc)
+        []) ++
+      (artifact.actions.foldr
+        (fun action acc =>
+          (action.expandItems.map (fun item => s!"action-expand {action.source}/{action.kind}: {item}")) ++ acc)
+        []) ++
+      (artifact.actions.foldr
+        (fun action acc =>
+          (action.casesItems.map (fun item => s!"action-cases {action.source}/{action.kind}: {item}")) ++ acc)
+        []) ++
+      (artifact.actions.foldr
+        (fun action acc =>
+          match action.doNotInductExpr? with
+          | some expr => s!"action-do-not-induct {action.source}/{action.kind}: {expr}" :: acc
+          | none => acc)
         []) ++
       (if artifact.observations.isEmpty then [] else artifact.observations.map (fun block => s!"observation: {inlineBlock block}")) ++
       (if artifact.warnings.isEmpty then [] else artifact.warnings.map (fun block => s!"warning: {inlineBlock block}")) ++
@@ -393,6 +418,53 @@ private def dynamicTheoryItemsSurfaceInRunes : Bool :=
   dynamicRunes artifact = ["disable floor"]
 
 #guard dynamicTheoryItemsSurfaceInRunes
+
+private def dynamicStructuredPayloadsSurfaceInNotes : Bool :=
+  let artifact : ACL2.HintBridge.DynamicArtifact :=
+    { book := "acl2_samples/demo.lisp"
+      resolved_book := "acl2_samples/demo.lisp"
+      load_steps := ["acl2_samples/demo.lisp"]
+      load_note := ""
+      requested_theorem := "demo"
+      theorem_name := "DEMO"
+      status := "proved"
+      summary_form := "( DEFTHM DEMO ...)"
+      summary_rules := []
+      hint_events := []
+      splitter_rules := []
+      warning_kinds := []
+      summary_time := ""
+      prover_steps := none
+      actions :=
+        [ { kind := "expand"
+            source := "transcript-hint"
+            summary := "expand ((EV$ X A)) in Goal"
+            goal_target := some "Goal"
+            targets := ["((EV$ X A))", "Goal"]
+            detail := "Goal: (:EXPAND ((EV$ X A)))"
+          }
+        , { kind := "do-not-induct"
+            source := "transcript-hint"
+            summary := "do-not-induct T in Goal"
+            goal_target := some "Goal"
+            targets := ["T", "Goal"]
+            detail := "Goal: (:DO-NOT-INDUCT T)"
+          }
+        ]
+      checkpoints := []
+      progress := []
+      observations := []
+      warnings := []
+      inductions := []
+      raw_excerpt := []
+      stderr := ""
+      exit_code := 0
+    }
+  let notes := (snapshotOfDynamicHints "acl2_samples/demo.lisp" "demo" artifact).notes
+  notes.any (fun note => note.contains "action-expand transcript-hint/expand:" && note.contains "ev$") &&
+    notes.any (fun note => note.contains "action-do-not-induct transcript-hint/do-not-induct:" && note.contains "T")
+
+#guard dynamicStructuredPayloadsSurfaceInNotes
 
 private def findImportedTheoremContext
     (events : List Event)
