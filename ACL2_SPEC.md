@@ -32,10 +32,15 @@
 - `lake exe acl2lean metadata <file> [theorem]`: prints extracted theorem metadata and top-level `in-theory` events for quick replay-oriented inspection.
 - `lake exe acl2lean metadata <file> [theorem]` and `lake exe acl2lean translate <file>` now see nested events surfaced through statically recoverable `make-event` expansions.
 - `lake exe acl2lean metadata <file> [theorem]` and `lake exe acl2lean translate <file>` now render structured proof-builder steps from `:instructions`, which is the first replay-oriented import path for ACL2 proof scripts.
+- Those metadata/translation views now also expand nested theory combinators into readable trees, so imported rune context from books like `apply-model-apply-prim.lisp` is inspectable without rereading the raw ACL2 form.
+- `#acl_imported_panel "<file>" "<theorem>"` renders a ProofWidgets snapshot from imported `TheoremInfo` plus the preceding top-level `in-theory` context, so proof-mode can display real ACL2 theorem metadata instead of only the static demo snapshot.
+- `ACL2Lean/Imported/Log2Replay.lean` is the first checked imported-theorem reconstruction in the repo: it proves ACL2 theorem `nbr-calls-clog2=1+clog2` from `acl2_samples/2009-log2.lisp` as a Lean theorem over the `SExpr` encoding, using a proof-friendly `Nat` mirror for the positive-integer path.
 - `ACL2Lean.Workbench.reportSamples`: `#eval` helper that prints event histograms for sanity checking future corpus updates.
 - Extend `sampleFiles` to track regressions; `lake build` exercises the pipeline automatically.
 
 ## Next Steps
-1. Interpret the structured `ProofInstruction` tree for a small replay prototype instead of only printing it, starting with `quiet!`, `:bash`, `:in-theory`, and `:repeat :prove`.
+
+1. Generalize the `Log2Replay` pattern into reusable infrastructure so more imported ACL2 theorems can lower to proof-friendly semantic mirrors instead of being reconstructed one-off.
 2. Parse richer hint subforms such as `:cases` and more nested `:in-theory` combinators so replay can target larger books.
-3. Feed extracted theorem metadata and theory events into proof replay and the ACL proof-mode widget instead of keeping them CLI/translator-only.
+3. Interpret the structured `ProofInstruction` tree for a small replay prototype instead of only printing it, starting with `quiet!`, `:bash`, `:in-theory`, and `:repeat :prove`.
+4. Feed extracted theorem metadata and theory events into proof replay and the ACL proof-mode widget instead of keeping them CLI/translator-only.
