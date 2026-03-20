@@ -1394,3 +1394,46 @@ Next best ideas:
 1. execute `runeProfile` plus `replayState.useTimeline` against real Lean goals, starting with theory disables and simple theorem/instance `use` steps
 2. thread `runeProfile`'s `lean-simp-candidates` / `lean-grind-candidates` into actual Lean replay configuration instead of only surfacing them in the CLI and proof-mode notes
 3. decide whether the dynamic hint stack from extraction through `runeProfile` is now coherent enough for a mainline promotion batch once one checked replay action lands
+
+## 2026-03-20 Iteration 36
+
+Completed this iteration:
+
+- extended `ACL2Lean/Imported/Log2Replay.lean` with public imported theorem reconstructions for `nbr-calls-flog2-lower-bound`, `nbr-calls-flog2-upper-bound`, and `nbr-calls-flog2-is-logarithmic`
+- added small arithmetic normalization lemmas for `2 + flog2`, `1 + 2 * flog2`, and `2 + 2 * flog2` so the new `flog2` bound proofs stay short and kernel-checked over the existing `Nat` semantic mirror
+- connected the checked theorem bundle back to the hint-generator story in `README.md` and `ACL2_SPEC.md`: ACL2's theorem-local `:USE NBR-CALLS-FLOG2-UPPER-BOUND` guidance for `nbr-calls-flog2-is-logarithmic` now has a matching imported Lean theorem instead of only a parsed action record
+- tracked the slice in Linear as `ALOK-576`
+
+Verification:
+
+- research branch commit `ef36aa2`: `lean-lsp-mcp` diagnostics on `ACL2Lean/Imported/Log2Replay.lean`
+- research branch commit `ef36aa2`: `lake build ACL2Lean.Imported.Log2Replay`
+- research branch commit `ef36aa2`: `lake build`
+- research branch commit `ef36aa2`: `uv run python Verify.py`
+- research branch commit `ef36aa2`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-log2.lisp nbr-calls-flog2-is-logarithmic | sed -n '1,140p'`
+- research branch commit `ef36aa2`: `./.lake/build/bin/acl2lean eval-in acl2_samples/2009-log2.lisp "(nbr-calls-flog2 33)"`
+- research branch commit `ef36aa2`: `./.lake/build/bin/acl2lean eval-in acl2_samples/2009-log2.lisp "(flog2 33)"`
+- research branch commit `ef36aa2`: `printf 'import ACL2Lean.Imported.Log2Replay\n#print axioms ACL2.Imported.Log2Replay.nbr_calls_flog2_lower_bound\n#print axioms ACL2.Imported.Log2Replay.nbr_calls_flog2_upper_bound\n#print axioms ACL2.Imported.Log2Replay.nbr_calls_flog2_is_logarithmic\n' | lake env lean /dev/stdin`
+- pushed research branch commit `ef36aa2` to `origin/autoresearch/mar19-acl2lean`
+- research branch commit `ef36aa2`: `lake exe acl2lean ci autoresearch/mar19-acl2lean` reported fresh GitHub Actions run `23336875979` in progress
+- `gh run watch 23336875979 --exit-status` succeeded for GitHub Actions run `23336875979`
+- promoted the stable slice to `main` as `5355624`
+- on `main`, a stale `.lake` artifact from the older toolchain blocked the first targeted build; after `lake clean`, both `lake build` and `uv run python Verify.py` passed
+- on `main`, `gh run watch 23336843214 --exit-status` succeeded for GitHub Actions run `23336843214`
+
+Outcome:
+
+- keep
+- promoted to `main`
+
+Notes:
+
+- this is the first checked imported-theorem slice in the repo that directly lands on a real theorem named by the dynamic ACL2 oracle path, not just on a display-only hint or normalized action payload
+- the `2009-log2` bundle now contains the exact `nbr-calls-flog2-upper-bound` theorem that ACL2 recommends via `:USE` when proving `nbr-calls-flog2-is-logarithmic`, which makes that oracle output immediately more actionable for later replay work
+- I left the actual dynamic-action-to-Lean-goal execution step for a follow-up iteration; this batch makes the target theorem available and checked first, which is a cleaner promotion boundary
+
+Next best ideas:
+
+1. resolve dynamic `useTimeline` theorem names against imported Lean declarations automatically so `acl2lean hints` and proof-mode can distinguish available replay targets from merely named ACL2 guidance
+2. execute the `nbr-calls-flog2-is-logarithmic` dynamic `:USE` action against a real Lean proof state as the first checked replay experiment driven by oracle data
+3. generalize the `Log2Replay` import pattern so more ACL2 theorem clusters can expose oracle-named support lemmas before the full generic replay engine lands
