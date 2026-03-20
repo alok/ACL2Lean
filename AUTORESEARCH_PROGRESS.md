@@ -262,3 +262,43 @@ Next best ideas:
 1. generalize the `Log2Replay` lowering pattern into reusable infrastructure so more imported ACL2 theorems can reconstruct through proof-friendly semantic mirrors
 2. connect imported hint / instruction metadata to these reconstructions so the next checked theorem uses real ACL2 proof artifacts instead of only theorem statements
 3. prove one more small imported theorem from `acl2_samples/2009-log2.lisp` or `acl2_samples/die-hard-work.lisp` to test whether the new pattern scales beyond a single hand-held example
+
+## 2026-03-19 Iteration 8
+
+Completed this iteration:
+
+- extended `ACL2Lean/Imported/Log2Replay.lean` from a single call-count theorem into a checked `clog2` theorem cluster covering `natp-clog2`, `posp-clog2`, `clog2-is-correct-lower`, `clog2-is-correct-upper`, `clog2-is-correct`, and the existing `nbr-calls-clog2=1+clog2`
+- factored the positive-input replay path into reusable `Nat` lemmas (`clog2Nat_pos`, `self_le_two_pow_clog2Nat`, `two_pow_pred_clog2Nat_lt_self`) plus imported `expt` normalization helpers for replaying ACL2 inequalities over the `SExpr` encoding
+- removed an initial `native_decide` shortcut from the concrete `n = 1` branches after axiom checking showed it introduced generated native axioms, replacing it with ordinary kernel-checked reduction
+- updated `README.md` and `ACL2_SPEC.md` so the repo now documents a small imported theorem bundle rather than a single isolated replay theorem
+
+Verification:
+
+- research branch commit `4bdd637`: `lake build ACL2Lean.Imported.Log2Replay`
+- research branch commit `4bdd637`: namespaced `#print axioms` for `ACL2.Imported.Log2Replay.{natp_clog2,posp_clog2,clog2_is_correct_lower,clog2_is_correct_upper,clog2_is_correct,nbr_calls_clog2_eq_1_plus_clog2}` showed only standard axioms (`propext`, `Quot.sound`)
+- research branch commit `4bdd637`: `lake build`
+- research branch commit `4bdd637`: `uv run python Verify.py`
+- research branch commit `4bdd637`: `./.lake/build/bin/acl2lean eval-in acl2_samples/2009-log2.lisp "(clog2 1)"`
+- research branch commit `4bdd637`: `./.lake/build/bin/acl2lean eval-in acl2_samples/2009-log2.lisp "(clog2 17)"`
+- research branch commit `4bdd637`: `./.lake/build/bin/acl2lean eval-in acl2_samples/2009-log2.lisp "(nbr-calls-clog2 17)"`
+- pushed research branch commit `4bdd637` to `origin/autoresearch/mar19-acl2lean`
+- promoted the stable slice to `main` as `2094b19`
+- on `main`, `lake build` passed in a separate worktree
+- on `main`, `uv run python Verify.py` passed in the promotion worktree
+
+Outcome:
+
+- keep
+- promoted to `main`
+
+Notes:
+
+- this turns `Log2Replay` into the first imported ACL2 theorem bundle in the repo whose central bound theorem (`clog2-is-correct`) is checked by Lean’s kernel instead of being left as imported metadata or a translated `sorry`
+- the positive-integer `Nat` mirror is still specialized to the `2009-log2.lisp` path, but it now captures enough reusable structure to replay more than one theorem from the book without starting over
+- `acl2lean eval-in` still reports `unknown built-in or wrong arity: expt` on raw `(expt ...)` forms, so theorem-adjacent smoke tests currently have to go through imported book functions like `clog2` rather than ACL2’s exponentiation primitive directly
+
+Next best ideas:
+
+1. generalize the `Log2Replay` helper layer into reusable imported-theorem replay infrastructure so other numeric ACL2 books can reuse the same positive-integer lowering pattern
+2. use the new `clog2` correctness bundle to replay one of the remaining `nbr-calls-flog2` theorems from `acl2_samples/2009-log2.lisp`, ideally reusing imported hint metadata instead of reconstructing everything by hand
+3. extend the evaluator / `eval-in` built-in surface to support `expt` directly, so imported theorem smoke tests can execute the ACL2 bound statements themselves instead of only adjacent function calls
