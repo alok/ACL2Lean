@@ -202,6 +202,78 @@ class HintBridgeParsingTests(unittest.TestCase):
             },
         )
 
+    def test_subsume_warning_with_quoted_rule_name_becomes_overlap_action(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>
+            ACL2 Warning [Subsume] in ( DEFTHM LEMMA-4 ...):  The previously added
+            rule |(+ y x)| subsumes a newly proposed :REWRITE rule generated from
+            LEMMA-4, in the sense that the old rule rewrites a more general target.
+            Because the new rule will be tried first, it may nonetheless find application.
+
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM LEMMA-4 ...)
+            Rules: NIL
+            Warnings:  Subsume
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             LEMMA-4
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "lemma-4")
+        self.assertTrue(
+            any(
+                action["kind"] == "watch-rune-overlap"
+                and action["summary"] == "compare generated rewrite from LEMMA-4 with existing rewrite |(+ y x)|"
+                and action["targets"] == ["LEMMA-4", "|(+ y x)|"]
+                for action in artifact["actions"]
+            )
+        )
+
+    def test_subsume_warning_with_plural_quoted_rule_names_splits_actions(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>
+            ACL2 Warning [Subsume] in ( DEFTHM LEMMA-3 ...):  The previously added
+            rules |(* x (+ y z))|, |(* (* x y) z)| and |(* y x)| subsume a newly
+            proposed :REWRITE rule generated from LEMMA-3, in the sense that the
+            old rules rewrite more general targets.  Because the new rule will
+            be tried first, it may nonetheless find application.
+
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM LEMMA-3 ...)
+            Rules: NIL
+            Warnings:  Subsume
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             LEMMA-3
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "lemma-3")
+        overlap_targets = {
+            tuple(action["targets"])
+            for action in artifact["actions"]
+            if action["kind"] == "watch-rune-overlap"
+        }
+        self.assertEqual(
+            overlap_targets,
+            {
+                ("LEMMA-3", "|(* x (+ y z))|"),
+                ("LEMMA-3", "|(* (* x y) z)|"),
+                ("LEMMA-3", "|(* y x)|"),
+            },
+        )
+
     def test_non_rec_warnings_become_disable_definition_actions(self) -> None:
         transcript = dedent(
             """
@@ -231,6 +303,48 @@ class HintBridgeParsingTests(unittest.TestCase):
                 action["kind"] == "disable-definition"
                 and action["summary"] == "disable (:DEFINITION NEXT) so rewrite from NEXT-UNIQUE can fire"
                 and action["targets"] == ["(:DEFINITION NEXT)", "NEXT-UNIQUE"]
+                for action in artifact["actions"]
+            )
+        )
+
+    def test_non_rec_warning_for_free_variable_search_becomes_disable_definition_action(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>
+            ACL2 Warning [Free] in ( DEFTHM LEMMA-2 ...):  A :REWRITE rule generated
+            from LEMMA-2 contains the free variable Y.  This variable will be chosen
+            by searching for an instance of (POSP Y) in the context of the term
+            being rewritten.  This is generally a severe restriction on the applicability
+            of a :REWRITE rule.  See :DOC free-variables.
+
+            ACL2 Warning [Non-rec] in ( DEFTHM LEMMA-2 ...):  As noted, we will
+            instantiate the free variable, Y, of a :REWRITE rule generated from
+            LEMMA-2, by searching for the hypothesis shown above.  However, this
+            hypothesis mentions the function symbol POSP, which has a non-recursive
+            definition.  Unless this definition is disabled, that function symbol
+            is unlikely to occur in the conjecture being proved and hence the search
+            for the required hypothesis will likely fail.
+
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM LEMMA-2 ...)
+            Rules: NIL
+            Warnings:  Free and Non-rec
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             LEMMA-2
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "lemma-2")
+        self.assertTrue(
+            any(
+                action["kind"] == "disable-definition"
+                and action["summary"] == "disable (:DEFINITION POSP) so free-variable search for Y via (POSP Y) can succeed in LEMMA-2"
+                and action["targets"] == ["(:DEFINITION POSP)", "LEMMA-2", "Y", "(POSP Y)"]
                 for action in artifact["actions"]
             )
         )

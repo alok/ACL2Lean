@@ -25,12 +25,20 @@ DISABLE_HINT_RE = re.compile(
     r"consider disabling\s+(\(.*?\))\s+in the hint provided for\s+([^.]+)\.",
     re.IGNORECASE,
 )
+ACL2_RULE_NAME_PATTERN = r"(?:\|[^|]+\||[^\s,]+)"
 SUBSUME_NEW_OVER_OLD_RE = re.compile(
-    r"generated from\s+([^\s,]+)\s+probably subsumes the previously added\s+:REWRITE rule\s+([^\s,]+)",
+    r"generated from\s+(?P<theorem>[^\s,]+)\s+probably subsumes the previously added\s+:REWRITE rule\s+"
+    r"(?P<rule>"
+    + ACL2_RULE_NAME_PATTERN
+    + r")",
+    re.IGNORECASE,
+)
+ACL2_RULE_NAME_RE = re.compile(
+    ACL2_RULE_NAME_PATTERN,
     re.IGNORECASE,
 )
 SUBSUME_OLD_OVER_NEW_RE = re.compile(
-    r"previously added rule\s+([^\s,]+)\s+subsumes a newly proposed\s+:REWRITE rule generated from\s+([^\s,]+)",
+    r"previously added\s+rules?\s+(?P<rules>.+?)\s+subsume(?:s)?\s+a newly proposed\s+:REWRITE rule generated from\s+(?P<theorem>[^\s,]+)",
     re.IGNORECASE,
 )
 INDUCTION_TERM_RE = re.compile(
@@ -74,6 +82,14 @@ FORWARD_CHAINING_NONREC_WARNING_RE = re.compile(
     r"The term\s+(?P<trigger>.+?)\s+contains the function symbol\s+(?P<function>[^\s,]+),\s+"
     r"which has a non-\s*recursive definition\.\s+Unless this definition is disabled,\s+"
     r"(?P=trigger)\s+is unlikely ever to occur as a trigger for\s+(?P<theorem>[^\s.]+)\.",
+    re.IGNORECASE,
+)
+FREE_SEARCH_NONREC_WARNING_RE = re.compile(
+    r"As noted, we will\s+instantiate the free variable,\s+(?P<variable>[^\s,]+),\s+"
+    r"of a\s+:(?P<rule_class>[A-Z0-9-]+)\s+rule generated from\s+(?P<theorem>[^\s,]+),\s+"
+    r"by searching for the hypothesis shown above\.\s+However, this hypothesis mentions the function symbol\s+"
+    r"(?P<function>[^\s,]+),\s+which has a non-\s*recursive definition\.\s+Unless this definition is disabled,\s+"
+    r"that function symbol is unlikely to occur in the conjecture being proved and hence the search for the required hypothesis will likely fail\.",
     re.IGNORECASE,
 )
 SPLITTER_RULE_RE = re.compile(r"^\s*([^:]+):\s*(.+?)\s*$")
@@ -177,6 +193,11 @@ def split_acl2_symbol_list(text: str) -> list[str]:
     return [part.strip().strip(".,") for part in normalized.split(",") if part.strip()]
 
 
+def split_acl2_rule_names(text: str) -> list[str]:
+    normalized = re.sub(r"\s+and\s+", ",", text.strip(), flags=re.IGNORECASE)
+    return [match.strip().strip(".,") for match in ACL2_RULE_NAME_RE.findall(normalized)]
+
+
 def nonrec_action_summary(rule_class: str, theorem_name: str, definition_rune: str) -> str:
     if rule_class.lower() == "rewrite":
         return f"disable {definition_rune} so rewrite from {theorem_name} can fire"
@@ -185,6 +206,20 @@ def nonrec_action_summary(rule_class: str, theorem_name: str, definition_rune: s
 
 def trigger_nonrec_action_summary(theorem_name: str, definition_rune: str, trigger_term: str) -> str:
     return f"disable {definition_rune} so trigger term {trigger_term} can arise for {theorem_name}"
+
+
+def free_search_nonrec_action_summary(
+    theorem_name: str,
+    definition_rune: str,
+    variable: str,
+    hypothesis: str | None,
+) -> str:
+    if hypothesis:
+        return (
+            f"disable {definition_rune} so free-variable search for {variable} via {hypothesis} "
+            f"can succeed in {theorem_name}"
+        )
+    return f"disable {definition_rune} so free-variable search for {variable} can succeed in {theorem_name}"
 
 
 @dataclass(frozen=True)
@@ -768,6 +803,7 @@ def extract_observation_actions(observations: list[str]) -> list[dict[str, objec
 
 def extract_warning_actions(warnings: list[str]) -> list[dict[str, object]]:
     actions: list[dict[str, object]] = []
+    free_warning_context: dict[tuple[str, str], str] = {}
     for warning in warnings:
         warning_text = inline_text(warning)
         disable_match = DISABLE_HINT_RE.search(warning_text)
@@ -814,7 +850,8 @@ def extract_warning_actions(warnings: list[str]) -> list[dict[str, object]]:
 
         subsume_match = SUBSUME_NEW_OVER_OLD_RE.search(warning_text)
         if subsume_match:
-            theorem_name, rule_name = subsume_match.groups()
+            theorem_name = subsume_match.group("theorem").strip()
+            rule_name = subsume_match.group("rule").strip()
             actions.append(
                 make_action(
                     "watch-rune-overlap",
@@ -828,16 +865,17 @@ def extract_warning_actions(warnings: list[str]) -> list[dict[str, object]]:
 
         subsume_match = SUBSUME_OLD_OVER_NEW_RE.search(warning_text)
         if subsume_match:
-            rule_name, theorem_name = subsume_match.groups()
-            actions.append(
-                make_action(
-                    "watch-rune-overlap",
-                    "warning",
-                    f"compare generated rewrite from {theorem_name} with existing rewrite {rule_name}",
-                    warning,
-                    targets=[theorem_name, rule_name],
+            theorem_name = subsume_match.group("theorem").strip()
+            for rule_name in split_acl2_rule_names(subsume_match.group("rules")):
+                actions.append(
+                    make_action(
+                        "watch-rune-overlap",
+                        "warning",
+                        f"compare generated rewrite from {theorem_name} with existing rewrite {rule_name}",
+                        warning,
+                        targets=[theorem_name, rule_name],
+                    )
                 )
-            )
 
         nonrec_match = NONREC_WARNING_RE.search(warning_text)
         if nonrec_match:
@@ -876,8 +914,10 @@ def extract_warning_actions(warnings: list[str]) -> list[dict[str, object]]:
         if free_match is None:
             free_match = FREE_WARNING_RE.search(warning_text)
         if free_match:
+            theorem_name = free_match.group("theorem").strip()
             variable = free_match.group("variable").strip()
             hypothesis = free_match.group("hypothesis").strip()
+            free_warning_context[(normalize_name(theorem_name), normalize_name(variable))] = hypothesis
             trigger = free_match.groupdict().get("trigger", "").strip()
             summary = f"bind free variable {variable} using {hypothesis}"
             targets = [variable, hypothesis]
@@ -889,6 +929,26 @@ def extract_warning_actions(warnings: list[str]) -> list[dict[str, object]]:
                     "bind-free-variable",
                     "warning",
                     summary,
+                    warning,
+                    targets=targets,
+                )
+            )
+
+        free_search_nonrec_match = FREE_SEARCH_NONREC_WARNING_RE.search(warning_text)
+        if free_search_nonrec_match:
+            theorem_name = free_search_nonrec_match.group("theorem").strip()
+            variable = free_search_nonrec_match.group("variable").strip()
+            function_name = free_search_nonrec_match.group("function").strip()
+            definition_rune = f"(:DEFINITION {function_name})"
+            hypothesis = free_warning_context.get((normalize_name(theorem_name), normalize_name(variable)))
+            targets = [definition_rune, theorem_name, variable]
+            if hypothesis:
+                targets.append(hypothesis)
+            actions.append(
+                make_action(
+                    "disable-definition",
+                    "warning",
+                    free_search_nonrec_action_summary(theorem_name, definition_rune, variable, hypothesis),
                     warning,
                     targets=targets,
                 )
