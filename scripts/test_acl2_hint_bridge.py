@@ -1180,6 +1180,45 @@ class HintBridgeParsingTests(unittest.TestCase):
         )
         self.assertTrue(artifact["raw_excerpt"][0].startswith("MODAPP !>>>"))
 
+    def test_theorem_section_ignores_helper_theorems_after_target_summary(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>>
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM FLAG-LEMMA ...)
+            Rules: NIL
+            Hint-events: ((:USE FLAG-LEMMA))
+            Time:  0.01 seconds (prove: 0.01, print: 0.00, other: 0.00)
+            Prover steps counted:  13
+            ACL2 Warning [Free] in ( DEFTHM HELPER-ONE ...):  Helper theorem warning.
+
+            ACL2 Observation in ( DEFTHM HELPER-TWO ...):  Helper theorem note.
+
+            Summary
+            Form:  ( DEFTHM HELPER-ONE ...)
+            Rules: NIL
+            Warnings:  Free
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             HELPER-ONE
+             FLAG-LEMMA
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "flag-lemma")
+        self.assertEqual(artifact["status"], "proved")
+        self.assertEqual(artifact["summary_form"], "( DEFTHM FLAG-LEMMA ...)")
+        self.assertEqual(artifact["hint_events"], ["(:USE FLAG-LEMMA)"])
+        self.assertEqual(artifact["warning_kinds"], [])
+        self.assertEqual(artifact["warnings"], [])
+        self.assertEqual(artifact["observations"], [])
+        self.assertNotIn("HELPER-ONE", "\n".join(artifact["raw_excerpt"]))
+        self.assertNotIn("HELPER-TWO", "\n".join(artifact["raw_excerpt"]))
+
     def test_load_failure_is_reported(self) -> None:
         transcript = dedent(
             """

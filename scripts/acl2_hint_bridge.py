@@ -13,6 +13,7 @@ from pathlib import Path
 
 
 THEOREM_FORM_RE = re.compile(r"Form:\s+\(\s*DEFTHM\s+([^\s)]+)", re.IGNORECASE)
+DEFTHM_NAME_RE = re.compile(r"\(\s*DEFTHM\s+([^\s)]+)", re.IGNORECASE)
 ACL2_ERROR_RE = re.compile(r"^ACL2 Error\b")
 FAILED_MARKER = "******** FAILED ********"
 GOAL_LINE_RE = re.compile(r"^Goal(?:'+)?$")
@@ -467,10 +468,16 @@ def previous_summary_index(lines: list[str], idx: int, lower_bound: int = 0) -> 
 
 
 def theorem_summary_end(lines: list[str], summary_idx: int, theorem_name: str) -> int:
+    theorem_norm = normalize_name(theorem_name)
     for j in range(summary_idx + 1, len(lines)):
         stripped = lines[j].strip()
         if stripped == theorem_name:
             return j + 1
+        defthm_match = DEFTHM_NAME_RE.search(stripped)
+        if defthm_match and normalize_name(defthm_match.group(1)) != theorem_norm:
+            return j
+        if stripped == "Summary":
+            return j
         if PROMPT_RE.match(lines[j].lstrip()):
             return j
     return len(lines)
@@ -581,8 +588,16 @@ def collect_progress_entries(lines: list[str]) -> list[dict[str, str]]:
     return progress
 
 
-def collect_prefixed_blocks(lines: list[str], prefix: str) -> list[str]:
+def block_theorem_name(block: str) -> str | None:
+    match = DEFTHM_NAME_RE.search(block)
+    if match is None:
+        return None
+    return match.group(1).strip()
+
+
+def collect_prefixed_blocks(lines: list[str], prefix: str, theorem_name: str | None = None) -> list[str]:
     blocks: list[str] = []
+    theorem_norm = normalize_name(theorem_name) if theorem_name else ""
     i = 0
     while i < len(lines):
         if lines[i].startswith(prefix):
@@ -591,7 +606,12 @@ def collect_prefixed_blocks(lines: list[str], prefix: str) -> list[str]:
             while j < len(lines) and lines[j].strip():
                 block.append(lines[j].rstrip())
                 j += 1
-            blocks.append("\n".join(block).strip())
+            rendered = "\n".join(block).strip()
+            block_name = block_theorem_name(rendered)
+            if theorem_norm and block_name is not None and normalize_name(block_name) != theorem_norm:
+                i = j
+                continue
+            blocks.append(rendered)
             i = j
         i += 1
     return blocks
@@ -1379,8 +1399,8 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
     hint_events = dedup_strings(
         summary["hint_events"] + [event for _, event in transcript_goal_hints]
     )
-    observations = collect_prefixed_blocks(excerpt, "ACL2 Observation")
-    warnings = collect_prefixed_blocks(excerpt, "ACL2 Warning")
+    observations = collect_prefixed_blocks(excerpt, "ACL2 Observation", theorem_name)
+    warnings = collect_prefixed_blocks(excerpt, "ACL2 Warning", theorem_name)
     inductions = collect_induction_blocks(excerpt)
     splitter_goal_rules = collect_splitter_goal_rules(excerpt)
     explicit_checkpoints = collect_checkpoint_blocks(excerpt)
