@@ -1,5 +1,6 @@
 import Lean
 import Lean.Data.Json
+import ACL2Lean.Import
 import ACL2Lean.ImportedRegistry
 import ACL2Lean.Parser
 
@@ -44,17 +45,17 @@ structure RewriteOverlapPayload where
 structure UseInstanceBinding where
   name : String
   value : SExpr
-  deriving Inhabited, Repr
+  deriving Inhabited, Repr, DecidableEq
 
 inductive UseTarget
   | ref (expr : SExpr)
   | theorem (expr : SExpr)
-  deriving Inhabited, Repr
+  deriving Inhabited, Repr, DecidableEq
 
 structure UsePayload where
   target : UseTarget
   bindings : List UseInstanceBinding := []
-  deriving Inhabited, Repr
+  deriving Inhabited, Repr, DecidableEq
 
 structure SplitGoalPayload where
   splitterName : String
@@ -140,18 +141,6 @@ def unavailableArtifact (book theoremName reason : String) : DynamicArtifact :=
 def parseArtifact (payload : String) : Except String DynamicArtifact := do
   let json ← Json.parse payload
   fromJson? json
-
-def fetchArtifact (book theoremName : String) : IO (Except String DynamicArtifact) := do
-  let cwd ← IO.currentDir
-  let out ← IO.Process.output
-    { cmd := "uv"
-      args := #["run", "python", "scripts/acl2_hint_bridge.py", "--book", book, "--theorem", theoremName]
-      cwd := some cwd
-    } none
-  if out.exitCode != 0 then
-    pure <| .error s!"acl2_hint_bridge.py failed with exit code {out.exitCode}\n{out.stderr}"
-  else
-    pure <| parseArtifact out.stdout
 
 private def parseSingleSExpr? (text : String) : Option SExpr :=
   match ACL2.Parse.parseAll text with
@@ -260,6 +249,12 @@ def ofSExpr? : SExpr → Option UseInstanceBinding
 def summary (binding : UseInstanceBinding) : String :=
   s!"{binding.name} := {binding.value}"
 
+def toSExpr (binding : UseInstanceBinding) : SExpr :=
+  SExpr.ofList
+    [ .atom (.symbol { name := binding.name })
+    , binding.value
+    ]
+
 end UseInstanceBinding
 
 namespace UseTarget
@@ -284,6 +279,14 @@ def structuredLine? : UseTarget → Option String
 def instanceSummary : UseTarget → String
   | .ref expr => toString expr
   | .theorem expr => s!"theorem {expr}"
+
+def toSExpr : UseTarget → SExpr
+  | .ref expr => expr
+  | .theorem expr =>
+      SExpr.ofList
+        [ .atom (.keyword "theorem")
+        , expr
+        ]
 
 def lookupName? : UseTarget → Option String
   | .ref (.atom (.symbol sym)) =>
@@ -318,10 +321,61 @@ def structuredLines (payload : UsePayload) (indent : Nat := 0) : List String :=
     renderLabeledItems "binding" (payload.bindings.map UseInstanceBinding.summary) indent
   targetLines ++ bindingLines
 
+def toSExpr (payload : UsePayload) : SExpr :=
+  match payload.bindings with
+  | [] => payload.target.toSExpr
+  | bindings =>
+      SExpr.ofList <|
+        .atom (.keyword "instance") ::
+          payload.target.toSExpr ::
+          bindings.map UseInstanceBinding.toSExpr
+
+def render (payload : UsePayload) : String :=
+  toString payload.toSExpr
+
+def bindingSpecString (payload : UsePayload) : String :=
+  toString <| SExpr.ofList (payload.bindings.map UseInstanceBinding.toSExpr)
+
 def lookupName? (payload : UsePayload) : Option String :=
   payload.target.lookupName?
 
 end UsePayload
+
+private def usePayloadsOfExpr (expr : SExpr) : List UsePayload :=
+  match expr.toList? with
+  | some (.atom (.keyword key) :: _) =>
+      if key = "instance" || key = "theorem" then
+        [UsePayload.ofSExpr expr]
+      else
+        [UsePayload.ofSExpr expr]
+  | some items => items.map UsePayload.ofSExpr
+  | none => [UsePayload.ofSExpr expr]
+
+structure SourceUseHint where
+  goalTarget : String
+  payload : UsePayload
+  deriving Inhabited, Repr, DecidableEq
+
+namespace SourceUseHint
+
+private def normalizeGoalTarget (goalTarget : String) : String :=
+  goalTarget.trimAscii.toString.map Char.toLower
+
+def goalMatches (hint : SourceUseHint) (goalTarget : String) : Bool :=
+  normalizeGoalTarget hint.goalTarget = normalizeGoalTarget goalTarget
+
+def ofTheoremInfo (info : TheoremInfo) : List SourceUseHint :=
+  info.hintGoals.foldl
+    (fun acc hint =>
+      match hint.findOption? "use" with
+      | some useExpr =>
+          acc ++
+            (usePayloadsOfExpr useExpr).map (fun payload =>
+              { goalTarget := hint.goal, payload })
+      | none => acc)
+    []
+
+end SourceUseHint
 
 namespace SplitGoalPayload
 
@@ -604,6 +658,98 @@ private def dedupStrings (items : List String) : List String :=
         acc ++ [item])
     []
 
+private def refinedSourceUsePayload?
+    (sourceHints : List SourceUseHint)
+    (action : DynamicAction) : Option UsePayload := do
+  guard (action.kind = "use")
+  let payload ← action.usePayload?
+  if !payload.bindings.isEmpty then
+    some payload
+  else
+    let acl2Name ← UsePayload.lookupName? payload
+    let namedHints :=
+      sourceHints.filter (fun hint =>
+        match UsePayload.lookupName? hint.payload with
+        | some sourceName =>
+            ImportedRegistry.normalizeAcl2Name sourceName =
+              ImportedRegistry.normalizeAcl2Name acl2Name
+        | none => false)
+    match action.goal_target with
+    | some goal =>
+        match namedHints.filter (fun hint => SourceUseHint.goalMatches hint goal) with
+        | [hint] => some hint.payload
+        | _ => none
+    | none =>
+        match namedHints with
+        | [hint] => some hint.payload
+        | _ => none
+
+private def refineUseActionWithSourceHints
+    (sourceHints : List SourceUseHint)
+    (action : DynamicAction) : DynamicAction :=
+  match refinedSourceUsePayload? sourceHints action with
+  | none => action
+  | some payload =>
+      let rendered := UsePayload.render payload
+      let summary :=
+        match action.goal_target with
+        | some goal => s!"use {rendered} in {goal}"
+        | none => s!"use {rendered}"
+      let detail :=
+        if action.detail.isEmpty then
+          s!"Source hint refinement: {rendered}"
+        else
+          action.detail ++ s!"\n\nSource hint refinement:\n  {rendered}"
+      { action with
+          summary
+          targets :=
+            match action.goal_target with
+            | some goal => [rendered, goal]
+            | none => [rendered]
+          detail }
+
+private def refineArtifactWithSourceHints
+    (artifact : DynamicArtifact)
+    (sourceHints : List SourceUseHint) : DynamicArtifact :=
+  if sourceHints.isEmpty then
+    artifact
+  else
+    { artifact with
+        actions := artifact.actions.map (refineUseActionWithSourceHints sourceHints) }
+
+private def loadSourceUseHints (artifact : DynamicArtifact) : IO (List SourceUseHint) := do
+  let candidatePaths :=
+    (dedupStrings [artifact.resolved_book, artifact.book]).filter (fun path => !path.trimAscii.isEmpty)
+  let theoremName :=
+    if artifact.theorem_name.trimAscii.isEmpty then
+      artifact.requested_theorem
+    else
+      artifact.theorem_name
+  let rec tryPaths : List String → IO (List SourceUseHint)
+    | [] => pure []
+    | path :: rest => do
+        match ← ACL2.loadTheoremContextFromFile path theoremName with
+        | .ok (_, info, _) =>
+            pure (SourceUseHint.ofTheoremInfo info)
+        | .error _ => tryPaths rest
+  tryPaths candidatePaths
+
+def fetchArtifact (book theoremName : String) : IO (Except String DynamicArtifact) := do
+  let cwd ← IO.currentDir
+  let out ← IO.Process.output
+    { cmd := "uv"
+      args := #["run", "python", "scripts/acl2_hint_bridge.py", "--book", book, "--theorem", theoremName]
+      cwd := some cwd
+    } none
+  if out.exitCode != 0 then
+    pure <| .error s!"acl2_hint_bridge.py failed with exit code {out.exitCode}\n{out.stderr}"
+  else
+    match parseArtifact out.stdout with
+    | .error err => pure (.error err)
+    | .ok artifact => do
+        let sourceHints ← loadSourceUseHints artifact
+        pure (.ok (refineArtifactWithSourceHints artifact sourceHints))
+
 structure DynamicRuneBucket where
   kind : String
   items : List String := []
@@ -803,19 +949,30 @@ structure ResolvedImportedUse where
   source : String
   goalTarget : Option String
   acl2Name : String
+  payload : UsePayload
   declNames : List Name
   deriving Inhabited, Repr, DecidableEq
 
 namespace ResolvedImportedUse
 
 def summary (entry : ResolvedImportedUse) : String :=
-  s!"{entry.acl2Name} -> {String.intercalate ", " (entry.declNames.map toString)}"
+  let instanceSummary :=
+    match entry.payload.bindings with
+    | [] => entry.acl2Name
+    | bindings =>
+        s!"{entry.acl2Name} with {String.intercalate ", " (bindings.map UseInstanceBinding.summary)}"
+  s!"{instanceSummary} -> {String.intercalate ", " (entry.declNames.map toString)}"
 
 def line (entry : ResolvedImportedUse) : String :=
   formatReplayEntry entry.source entry.goalTarget entry.summary
 
 def replaySeedTactic (entry : ResolvedImportedUse) : String :=
-  formatReplayEntry entry.source entry.goalTarget s!"acl2_use \"{entry.acl2Name}\""
+  let body :=
+    match entry.payload.bindings with
+    | [] => s!"acl2_use \"{entry.acl2Name}\""
+    | _ =>
+        s!"acl2_use_instance \"{entry.acl2Name}\" with {repr entry.payload.bindingSpecString}"
+  formatReplayEntry entry.source entry.goalTarget body
 
 end ResolvedImportedUse
 
@@ -826,17 +983,21 @@ def resolvedImportedUses
     (registry : ImportedRegistry.Snapshot := {}) : List ResolvedImportedUse :=
   artifact.actions.foldl
     (fun acc action =>
-      match action.useLookupName? with
-      | some acl2Name =>
-          match ImportedRegistry.resolve registry acl2Name with
-          | [] => acc
-          | declNames =>
-              let entry :=
-                { source := action.source
-                  goalTarget := action.goal_target
-                  acl2Name
-                  declNames }
-              if acc.any (· == entry) then acc else acc ++ [entry]
+      match action.usePayload? with
+      | some payload =>
+          match payload.lookupName? with
+          | some acl2Name =>
+              match ImportedRegistry.resolve registry acl2Name with
+              | [] => acc
+              | declNames =>
+                  let entry :=
+                    { source := action.source
+                      goalTarget := action.goal_target
+                      acl2Name
+                      payload
+                      declNames }
+                  if acc.any (· == entry) then acc else acc ++ [entry]
+          | none => acc
       | none => acc)
     []
 
@@ -1203,6 +1364,31 @@ def renderLines
             ] ++ acc)
           []
   header ++ loadNote ++ loadSteps ++ summary ++ summaryRules ++ hintEvents ++ splitterRules ++ warningKinds ++ summaryTime ++ proverSteps ++ actions ++ runes ++ replay ++ resolvedUses ++ replaySeeds ++ observations ++ warnings ++ inductions ++ progress ++ checkpoints
+
+private def sourceHintRefinementRecoversInstanceBindings : Bool :=
+  let sourceHints :=
+    match parseSingleSExpr?
+        "((\"Subgoal *1/2\" :USE (:INSTANCE PAIR-POW-2N-2N+1 (N (/ (+ -1 N) 2)))))" with
+    | some hintsExpr =>
+        SourceUseHint.ofTheoremInfo
+          { body := .nil
+            options := [{ key := "hints", value := hintsExpr }] }
+    | none => []
+  let action : DynamicAction :=
+    { kind := "use"
+      source := "warning"
+      summary := "use PAIR-POW-2N-2N+1 in Subgoal *1/2"
+      goal_target := some "Subgoal *1/2"
+      targets := ["PAIR-POW-2N-2N+1", "Subgoal *1/2"]
+      detail := "" }
+  let refined := refineUseActionWithSourceHints sourceHints action
+  refined.summary.contains "(:instance pair-pow-2n-2n+1" &&
+    refined.targets.head? = some "(:instance pair-pow-2n-2n+1 (n (/ (+ -1 n) 2)))" &&
+    (match refined.usePayload? with
+      | some payload => payload.bindings.map UseInstanceBinding.summary = ["n := (/ (+ -1 n) 2)"]
+      | none => false)
+
+#guard sourceHintRefinementRecoversInstanceBindings
 
 private def dynamicExpandPayloadParses : Bool :=
   let action : DynamicAction :=

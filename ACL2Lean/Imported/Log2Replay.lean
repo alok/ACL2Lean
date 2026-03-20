@@ -307,6 +307,17 @@ theorem natp_clog2 (n : SExpr) :
 acl2_imported "natp-clog2" natp_clog2
 
 /--
+Smoke test for the instance-capable replay executor on an imported theorem.
+-/
+private theorem replay_seed_natp_clog2_instance (n : SExpr) :
+    Logic.toBool
+      (Logic.implies
+        (Logic.and (Logic.integerp (Logic.plus n (intExpr 1)))
+          (Logic.gt (Logic.plus n (intExpr 1)) (intExpr 0)))
+        (Logic.ge (clog2 (Logic.plus n (intExpr 1))) (intExpr 0))) = true := by
+  acl2_use_instance "natp-clog2" with "((n (+ n 1)))"
+
+/--
 Reconstruction of ACL2 theorem `posp-clog2` from
 `acl2_samples/2009-log2.lisp`.
 -/
