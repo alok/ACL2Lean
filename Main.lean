@@ -69,6 +69,7 @@ def main (args : List String) : IO Unit := do
           IO.println "import ACL2Lean.Logic"
           IO.println "import ACL2Lean.Lexorder"
           IO.println "import ACL2Lean.Count"
+          IO.println "import ACL2Lean.TermOrder"
           IO.println "import ACL2Lean.Tactics"
           -- Emit include-book as Lean imports
           for ev in ACL2.Event.flattenList evs do
