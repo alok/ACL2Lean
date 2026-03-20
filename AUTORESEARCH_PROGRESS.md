@@ -982,3 +982,42 @@ Next best ideas:
 1. start executing checkpoint-local dynamic `use`, `disable-rule` / `disable-definition`, and `in-theory` actions against Lean replay state so the parsed oracle guidance changes checked replay instead of only display
 2. normalize other dynamic hint payloads such as `:expand` and `:do-not-induct` more structurally on the Lean side, so replay consumers do not have to peel those strings apart later
 3. decide whether the accumulated dynamic hint/proof-mode slices are coherent enough to promote together to `main` as one stable replay-infrastructure batch
+
+## 2026-03-19 Iteration 27
+
+Completed this iteration:
+
+- tightened `scripts/acl2_hint_bridge.py` so a target theorem excerpt now stops before later helper-theorem summaries or other foreign `DEFTHM` blocks that appear after the target summary in one ACL2 prompt
+- added a second theorem-name filter on collected `ACL2 Warning` / `ACL2 Observation` blocks, so helper `DEFTHM`s inside macro-generated proof runs cannot pollute the target theorem artifact even if they share the same prompt
+- added a focused parser regression that simulates the bad shape: target summary first, then helper-theorem warning/observation noise before ACL2 returns to the prompt
+- verified the real `apply-model/apply` flag-lemma path now keeps only target-local dynamic guidance: `FLAG-LEMMA-FOR-GUESS-ILKS-ALIST-CORRECT` no longer inherits `GUESS-ILKS-ALIST-CORRECT` / `GUESS-ILKS-ALIST-LIST-CORRECT` warning actions, while still preserving its own clause-processor, `:use`, splitter, and induction data
+- tracked this slice in Linear as `ALOK-566`
+
+Verification:
+
+- research branch commit `730bc57`: `PYTHONPATH=scripts uv run python -m unittest scripts.test_acl2_hint_bridge.HintBridgeParsingTests.test_theorem_section_ignores_helper_theorems_after_target_summary`
+- research branch commit `730bc57`: `PYTHONPATH=scripts uv run python -m unittest scripts.test_acl2_hint_bridge`
+- research branch commit `730bc57`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/apply-model-apply.lisp --theorem 'FLAG-LEMMA-FOR-GUESS-ILKS-ALIST-CORRECT'`
+- research branch commit `730bc57`: `./.lake/build/bin/acl2lean hints acl2_samples/apply-model-apply.lisp 'FLAG-LEMMA-FOR-GUESS-ILKS-ALIST-CORRECT' | sed -n '1,160p'`
+- research branch commit `730bc57`: one-off leak scan over `acl2_samples/apply-model-apply.lisp` confirmed no remaining warning/observation blocks are attributed to foreign `DEFTHM`s
+- research branch commit `730bc57`: `lake build`
+- research branch commit `730bc57`: `uv run python Verify.py`
+- pushed research branch commit `730bc57` to `origin/autoresearch/mar19-acl2lean`
+- `gh run watch 23331811502 --exit-status` succeeded for GitHub Actions run `23331811502`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- this fixes a real theorem-locality bug in the ACL2 hint-generator path rather than adding another display-only parser case: Lean-side replay consumers now stop seeing disable/bind-free-variable advice for helper theorems when the user asked for the outer flag lemma
+- the `apply-model/apply` corpus was the main offender; a post-fix scan of that book found no remaining warning/observation blocks whose `DEFTHM` header disagrees with the target theorem artifact
+- GitHub Actions stayed green on the code push; the only CI annotation was the existing Node.js 20 deprecation warning from upstream GitHub actions, not a failure in this repo
+
+Next best ideas:
+
+1. make dynamic checkpoint/progress extraction equally theorem-local in macro-generated transcripts where helper subproofs can still appear without explicit warning/observation headers
+2. start executing the cleaned checkpoint-local dynamic `use`, `disable-rule` / `disable-definition`, and `in-theory` actions against Lean replay state so theorem-local oracle guidance affects checked replay
+3. decide whether newly surfaced dynamic hint kinds like `:CLAUSE-PROCESSOR` should become first-class Lean-side replay actions rather than remaining generic action records
