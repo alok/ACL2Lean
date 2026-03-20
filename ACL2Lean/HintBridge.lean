@@ -16,6 +16,30 @@ structure DynamicAction where
   detail : String
   deriving Inhabited, Repr, FromJson, ToJson
 
+structure DisableRulePayload where
+  rune : String
+  goalTarget : Option String := none
+  deriving Inhabited, Repr
+
+structure DisableDefinitionPayload where
+  definitionRune : String
+  thmName : String
+  freeVar : Option String := none
+  hypothesis : Option String := none
+  triggerTerm : Option String := none
+  deriving Inhabited, Repr
+
+structure FreeVariableBindingPayload where
+  freeVar : String
+  hypothesis : String
+  triggerTerm : Option String := none
+  deriving Inhabited, Repr
+
+structure RewriteOverlapPayload where
+  generatedTheorem : String
+  existingRule : String
+  deriving Inhabited, Repr
+
 structure DynamicCheckpoint where
   kind : String
   label : String
@@ -225,6 +249,45 @@ def inductionRule? (action : DynamicAction) : Option String :=
     | rule :: _ => some rule
     | [] => none
 
+def disableRulePayload? (action : DynamicAction) : Option DisableRulePayload := do
+  if action.kind != "disable-rule" then
+    none
+  else
+    let rune <- action.nonGoalTargets.head?
+    some { rune, goalTarget := action.goal_target }
+
+def disableDefinitionPayload? (action : DynamicAction) : Option DisableDefinitionPayload := do
+  if action.kind != "disable-definition" then
+    none
+  else
+    let definitionRune :: thmName :: rest := action.targets | none
+    let base : DisableDefinitionPayload := { definitionRune := definitionRune, thmName := thmName }
+    match rest with
+    | freeVar :: hypothesis :: _ =>
+        some { base with freeVar := some freeVar, hypothesis := some hypothesis }
+    | single :: _ =>
+      if single.trimAscii.toString.startsWith "(" then
+        some { base with triggerTerm := some single }
+      else
+        some { base with freeVar := some single }
+    | [] => some base
+
+def freeVariableBindingPayload? (action : DynamicAction) : Option FreeVariableBindingPayload := do
+  if action.kind != "bind-free-variable" then
+    none
+  else
+    let freeVar :: hypothesis :: rest := action.targets | none
+    match rest with
+    | triggerTerm :: _ => some { freeVar, hypothesis, triggerTerm := some triggerTerm }
+    | [] => some { freeVar, hypothesis }
+
+def rewriteOverlapPayload? (action : DynamicAction) : Option RewriteOverlapPayload := do
+  if action.kind != "watch-rune-overlap" then
+    none
+  else
+    let generatedTheorem :: existingRule :: _ := action.targets | none
+    some { generatedTheorem, existingRule }
+
 def structuredLines (action : DynamicAction) (indent : Nat := 0) : List String :=
   match action.kind with
   | "in-theory" => action.theoryLines indent
@@ -244,6 +307,40 @@ def structuredLines (action : DynamicAction) (indent : Nat := 0) : List String :
         (match action.inductionRule? with
           | some rule => renderLabeledItems "induction-rule" [rule] indent
           | none => [])
+  | "disable-rule" =>
+      match action.disableRulePayload? with
+      | some payload => renderLabeledItems "disable-rule" [payload.rune] indent
+      | none => []
+  | "disable-definition" =>
+      match action.disableDefinitionPayload? with
+      | some payload =>
+          renderLabeledItems "disable-definition" [payload.definitionRune] indent ++
+            renderLabeledItems "theorem" [payload.thmName] indent ++
+            (match payload.freeVar with
+              | some freeVar => renderLabeledItems "variable" [freeVar] indent
+              | none => []) ++
+            (match payload.hypothesis with
+              | some hypothesis => renderLabeledItems "hypothesis" [hypothesis] indent
+              | none => []) ++
+            (match payload.triggerTerm with
+              | some triggerTerm => renderLabeledItems "trigger-term" [triggerTerm] indent
+              | none => [])
+      | none => []
+  | "bind-free-variable" =>
+      match action.freeVariableBindingPayload? with
+      | some payload =>
+          renderLabeledItems "variable" [payload.freeVar] indent ++
+            renderLabeledItems "hypothesis" [payload.hypothesis] indent ++
+            (match payload.triggerTerm with
+              | some triggerTerm => renderLabeledItems "trigger-term" [triggerTerm] indent
+              | none => [])
+      | none => []
+  | "watch-rune-overlap" =>
+      match action.rewriteOverlapPayload? with
+      | some payload =>
+          renderLabeledItems "generated-theorem" [payload.generatedTheorem] indent ++
+            renderLabeledItems "existing-rule" [payload.existingRule] indent
+      | none => []
   | _ => []
 
 end DynamicAction
@@ -436,6 +533,95 @@ private def dynamicInductPayloadParses : Bool :=
       line.contains "induction-rule:" && line.contains "MAKE-PROG1-INDUCTION")
 
 #guard dynamicInductPayloadParses
+
+private def dynamicDisableRulePayloadParses : Bool :=
+  let action : DynamicAction :=
+    { kind := "disable-rule"
+      source := "warning"
+      summary := "disable (:REWRITE NBR-CALLS-FLOG2-UPPER-BOUND) in Goal"
+      goal_target := some "Goal"
+      targets := ["(:REWRITE NBR-CALLS-FLOG2-UPPER-BOUND)", "Goal"]
+      detail := "ACL2 Warning [Use] ..."
+    }
+  (match action.disableRulePayload? with
+    | some payload => payload.rune.contains "NBR-CALLS-FLOG2-UPPER-BOUND" && payload.goalTarget = some "Goal"
+    | none => false) &&
+    (action.structuredLines 2).any (fun line =>
+      line.contains "disable-rule:" && line.contains "NBR-CALLS-FLOG2-UPPER-BOUND")
+
+#guard dynamicDisableRulePayloadParses
+
+private def dynamicDisableDefinitionPayloadParses : Bool :=
+  let triggerAction : DynamicAction :=
+    { kind := "disable-definition"
+      source := "warning"
+      summary := "disable (:DEFINITION BADGE) so trigger term (BADGE FN) can arise for BADGE-TYPE"
+      goal_target := none
+      targets := ["(:DEFINITION BADGE)", "BADGE-TYPE", "(BADGE FN)"]
+      detail := "ACL2 Warning [Non-rec] ..."
+    }
+  let freeSearchAction : DynamicAction :=
+    { kind := "disable-definition"
+      source := "warning"
+      summary := "disable (:DEFINITION POSP) so free-variable search for Y via (POSP Y) can succeed in LEMMA-2"
+      goal_target := none
+      targets := ["(:DEFINITION POSP)", "LEMMA-2", "Y", "(POSP Y)"]
+      detail := "ACL2 Warning [Non-rec] ..."
+    }
+  (match triggerAction.disableDefinitionPayload? with
+    | some payload =>
+        payload.definitionRune = "(:DEFINITION BADGE)" &&
+          payload.thmName = "BADGE-TYPE" &&
+          payload.triggerTerm = some "(BADGE FN)"
+    | none => false) &&
+    (match freeSearchAction.disableDefinitionPayload? with
+      | some payload =>
+          payload.definitionRune = "(:DEFINITION POSP)" &&
+            payload.thmName = "LEMMA-2" &&
+            payload.freeVar = some "Y" &&
+            payload.hypothesis = some "(POSP Y)"
+      | none => false) &&
+    (freeSearchAction.structuredLines 2).any (fun line =>
+      line.contains "hypothesis:" && line.contains "(POSP Y)")
+
+#guard dynamicDisableDefinitionPayloadParses
+
+private def dynamicFreeVariableBindingPayloadParses : Bool :=
+  let action : DynamicAction :=
+    { kind := "bind-free-variable"
+      source := "warning"
+      summary := "bind free variable J using (EQUAL (NONNEG-INT-MOD J GCD) '0) when rule sees (FLOOR I GCD)"
+      goal_target := none
+      targets := ["J", "(EQUAL (NONNEG-INT-MOD J GCD) '0)", "(FLOOR I GCD)"]
+      detail := "ACL2 Warning [Free] ..."
+    }
+  (match action.freeVariableBindingPayload? with
+    | some payload =>
+        payload.freeVar = "J" &&
+          payload.hypothesis.contains "NONNEG-INT-MOD" &&
+          payload.triggerTerm = some "(FLOOR I GCD)"
+    | none => false) &&
+    (action.structuredLines 2).any (fun line =>
+      line.contains "trigger-term:" && line.contains "(FLOOR I GCD)")
+
+#guard dynamicFreeVariableBindingPayloadParses
+
+private def dynamicRewriteOverlapPayloadParses : Bool :=
+  let action : DynamicAction :=
+    { kind := "watch-rune-overlap"
+      source := "warning"
+      summary := "compare generated rewrite from LEMMA-4 with existing rewrite |(+ y x)|"
+      goal_target := none
+      targets := ["LEMMA-4", "|(+ y x)|"]
+      detail := "ACL2 Warning [Subsume] ..."
+    }
+  (match action.rewriteOverlapPayload? with
+    | some payload => payload.generatedTheorem = "LEMMA-4" && payload.existingRule = "|(+ y x)|"
+    | none => false) &&
+    (action.structuredLines 2).any (fun line =>
+      line.contains "existing-rule:" && line.contains "|(+ y x)|")
+
+#guard dynamicRewriteOverlapPayloadParses
 
 end HintBridge
 end ACL2

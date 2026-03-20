@@ -308,7 +308,60 @@ private def actionNote (action : ACL2.HintBridge.DynamicAction) : String :=
     match action.doNotInductExpr? with
     | some expr => " {do-not-induct: " ++ toString expr ++ "}"
     | none => ""
-  s!"action {action.source}/{action.kind}{goalTarget}: {action.summary}{targets}{theory}{clauseProcessor}{otfFlag}{inductTerm}{inductionRule}{expand}{cases}{doNotInduct}"
+  let disableRule :=
+    match action.disableRulePayload? with
+    | some payload => " {disable-rule: " ++ payload.rune ++ "}"
+    | none => ""
+  let disableDefinition :=
+    match action.disableDefinitionPayload? with
+    | some payload => " {disable-definition: " ++ payload.definitionRune ++ "}"
+    | none => ""
+  let warningTheorem :=
+    match action.disableDefinitionPayload? with
+    | some payload => " {theorem: " ++ payload.thmName ++ "}"
+    | none => ""
+  let freeVariable :=
+    match action.freeVariableBindingPayload? with
+    | some payload => " {variable: " ++ payload.freeVar ++ "}"
+    | none =>
+        match action.disableDefinitionPayload? with
+        | some payload =>
+            match payload.freeVar with
+            | some freeVar => " {variable: " ++ freeVar ++ "}"
+            | none => ""
+        | none => ""
+  let hypothesis :=
+    match action.freeVariableBindingPayload? with
+    | some payload => " {hypothesis: " ++ payload.hypothesis ++ "}"
+    | none =>
+        match action.disableDefinitionPayload? with
+        | some payload =>
+            match payload.hypothesis with
+            | some hypothesis => " {hypothesis: " ++ hypothesis ++ "}"
+            | none => ""
+        | none => ""
+  let triggerTerm :=
+    match action.freeVariableBindingPayload? with
+    | some payload =>
+        match payload.triggerTerm with
+        | some term => " {trigger-term: " ++ term ++ "}"
+        | none => ""
+    | none =>
+        match action.disableDefinitionPayload? with
+        | some payload =>
+            match payload.triggerTerm with
+            | some term => " {trigger-term: " ++ term ++ "}"
+            | none => ""
+        | none => ""
+  let generatedTheorem :=
+    match action.rewriteOverlapPayload? with
+    | some payload => " {generated-theorem: " ++ payload.generatedTheorem ++ "}"
+    | none => ""
+  let existingRule :=
+    match action.rewriteOverlapPayload? with
+    | some payload => " {existing-rule: " ++ payload.existingRule ++ "}"
+    | none => ""
+  s!"action {action.source}/{action.kind}{goalTarget}: {action.summary}{targets}{theory}{clauseProcessor}{otfFlag}{inductTerm}{inductionRule}{expand}{cases}{doNotInduct}{disableRule}{disableDefinition}{warningTheorem}{freeVariable}{hypothesis}{triggerTerm}{generatedTheorem}{existingRule}"
 
 private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
   dedupStrings <|
@@ -394,6 +447,59 @@ private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.Dynam
         (fun action acc =>
           match action.doNotInductExpr? with
           | some expr => s!"action-do-not-induct {action.source}/{action.kind}: {expr}" :: acc
+          | none => acc)
+        []) ++
+      (artifact.actions.foldr
+        (fun action acc =>
+          match action.disableRulePayload? with
+          | some payload => s!"action-disable-rule {action.source}/{action.kind}: {payload.rune}" :: acc
+          | none => acc)
+        []) ++
+      (artifact.actions.foldr
+        (fun action acc =>
+          match action.disableDefinitionPayload? with
+          | some payload =>
+              let base :=
+                [ s!"action-disable-definition {action.source}/{action.kind}: {payload.definitionRune}"
+                , s!"action-warning-theorem {action.source}/{action.kind}: {payload.thmName}"
+                ]
+              let withVariable :=
+                match payload.freeVar with
+                | some freeVar => base ++ [s!"action-free-variable {action.source}/{action.kind}: {freeVar}"]
+                | none => base
+              let withHypothesis :=
+                match payload.hypothesis with
+                | some hypothesis => withVariable ++ [s!"action-binding-hypothesis {action.source}/{action.kind}: {hypothesis}"]
+                | none => withVariable
+              let withTrigger :=
+                match payload.triggerTerm with
+                | some term => withHypothesis ++ [s!"action-trigger-term {action.source}/{action.kind}: {term}"]
+                | none => withHypothesis
+              withTrigger ++ acc
+          | none => acc)
+        []) ++
+      (artifact.actions.foldr
+        (fun action acc =>
+          match action.freeVariableBindingPayload? with
+          | some payload =>
+              let base :=
+                [ s!"action-free-variable {action.source}/{action.kind}: {payload.freeVar}"
+                , s!"action-binding-hypothesis {action.source}/{action.kind}: {payload.hypothesis}"
+                ]
+              let withTrigger :=
+                match payload.triggerTerm with
+                | some term => base ++ [s!"action-trigger-term {action.source}/{action.kind}: {term}"]
+                | none => base
+              withTrigger ++ acc
+          | none => acc)
+        []) ++
+      (artifact.actions.foldr
+        (fun action acc =>
+          match action.rewriteOverlapPayload? with
+          | some payload =>
+              [ s!"action-generated-theorem {action.source}/{action.kind}: {payload.generatedTheorem}"
+              , s!"action-existing-rule {action.source}/{action.kind}: {payload.existingRule}"
+              ] ++ acc
           | none => acc)
         []) ++
       (if artifact.observations.isEmpty then [] else artifact.observations.map (fun block => s!"observation: {inlineBlock block}")) ++
@@ -507,6 +613,34 @@ private def dynamicStructuredPayloadsSurfaceInNotes : Bool :=
             targets := ["T", "Goal"]
             detail := "Goal: (:DO-NOT-INDUCT T)"
           }
+        , { kind := "disable-rule"
+            source := "warning"
+            summary := "disable (:REWRITE NBR-CALLS-FLOG2-UPPER-BOUND) in Goal"
+            goal_target := some "Goal"
+            targets := ["(:REWRITE NBR-CALLS-FLOG2-UPPER-BOUND)", "Goal"]
+            detail := "ACL2 Warning [Use] ..."
+          }
+        , { kind := "disable-definition"
+            source := "warning"
+            summary := "disable (:DEFINITION POSP) so free-variable search for Y via (POSP Y) can succeed in LEMMA-2"
+            goal_target := none
+            targets := ["(:DEFINITION POSP)", "LEMMA-2", "Y", "(POSP Y)"]
+            detail := "ACL2 Warning [Non-rec] ..."
+          }
+        , { kind := "bind-free-variable"
+            source := "warning"
+            summary := "bind free variable J using (EQUAL (NONNEG-INT-MOD J GCD) '0) when rule sees (FLOOR I GCD)"
+            goal_target := none
+            targets := ["J", "(EQUAL (NONNEG-INT-MOD J GCD) '0)", "(FLOOR I GCD)"]
+            detail := "ACL2 Warning [Free] ..."
+          }
+        , { kind := "watch-rune-overlap"
+            source := "warning"
+            summary := "compare generated rewrite from LEMMA-4 with existing rewrite |(+ y x)|"
+            goal_target := none
+            targets := ["LEMMA-4", "|(+ y x)|"]
+            detail := "ACL2 Warning [Subsume] ..."
+          }
         ]
       checkpoints := []
       progress := []
@@ -523,7 +657,15 @@ private def dynamicStructuredPayloadsSurfaceInNotes : Bool :=
     notes.any (fun note => note.contains "action-induct-term induction/induct:" && note.toLower.contains "make-prog1-induction") &&
     notes.any (fun note => note.contains "action-induction-rule induction/induct: MAKE-PROG1-INDUCTION") &&
     notes.any (fun note => note.contains "action-expand transcript-hint/expand:" && note.contains "ev$") &&
-    notes.any (fun note => note.contains "action-do-not-induct transcript-hint/do-not-induct:" && note.contains "T")
+    notes.any (fun note => note.contains "action-do-not-induct transcript-hint/do-not-induct:" && note.contains "T") &&
+    notes.any (fun note => note.contains "action-disable-rule warning/disable-rule:" && note.contains "NBR-CALLS-FLOG2-UPPER-BOUND") &&
+    notes.any (fun note => note.contains "action-disable-definition warning/disable-definition:" && note.contains "(:DEFINITION POSP)") &&
+    notes.any (fun note => note.contains "action-warning-theorem warning/disable-definition:" && note.contains "LEMMA-2") &&
+    notes.any (fun note => note.contains "action-free-variable warning/bind-free-variable:" && note.contains "J") &&
+    notes.any (fun note => note.contains "action-binding-hypothesis warning/bind-free-variable:" && note.contains "NONNEG-INT-MOD") &&
+    notes.any (fun note => note.contains "action-trigger-term warning/bind-free-variable:" && note.contains "(FLOOR I GCD)") &&
+    notes.any (fun note => note.contains "action-generated-theorem warning/watch-rune-overlap:" && note.contains "LEMMA-4") &&
+    notes.any (fun note => note.contains "action-existing-rule warning/watch-rune-overlap:" && note.contains "|(+ y x)|")
 
 #guard dynamicStructuredPayloadsSurfaceInNotes
 
