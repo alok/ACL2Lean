@@ -60,19 +60,29 @@ def foldNary (fn : String) (args : List String) : String :=
   | a :: rest => s!"({fn} {a} {foldNary fn rest})"
 
 mutual
-/-- Translate `(cond (test1 val1) (test2 val2) ... (t default))` to nested if_. -/
-partial def translateCond (clauses : SExpr) : String :=
+/-- Translate `(cond (test1 val1) (test2 val2) ... (t default))` to nested if. -/
+partial def translateCond (clauses : SExpr) (nativeIf : Bool) : String :=
   match clauses with
   | .cons (.cons test (.cons val .nil)) rest =>
     match test with
     | .atom (.symbol s) =>
-      if s.isNamed "t" then translateExpr val
-      else s!"(Logic.if_ {translateExpr test} {translateExpr val} {translateCond rest})"
-    | _ => s!"(Logic.if_ {translateExpr test} {translateExpr val} {translateCond rest})"
+      if s.isNamed "t" then translateExpr val nativeIf
+      else if nativeIf then
+        s!"(if Logic.toBool {translateExpr test nativeIf} then {translateExpr val nativeIf} else {translateCond rest nativeIf})"
+      else
+        s!"(Logic.if_ {translateExpr test nativeIf} {translateExpr val nativeIf} {translateCond rest nativeIf})"
+    | _ =>
+      if nativeIf then
+        s!"(if Logic.toBool {translateExpr test nativeIf} then {translateExpr val nativeIf} else {translateCond rest nativeIf})"
+      else
+        s!"(Logic.if_ {translateExpr test nativeIf} {translateExpr val nativeIf} {translateCond rest nativeIf})"
   | .nil => "SExpr.nil"
   | _ => s!"sorry /- malformed cond: {repr clauses} -/"
 
-partial def translateExpr (expr : SExpr) : String :=
+/-- Translate an ACL2 expression. When `nativeIf` is true, emit Lean's native
+    `if toBool ... then ... else ...` instead of `Logic.if_` so Lean's
+    termination checker can see the branching structure. -/
+partial def translateExpr (expr : SExpr) (nativeIf : Bool := false) : String :=
   match expr with
   | .nil => "SExpr.nil"
   | .atom (.bool true) => "(SExpr.atom (.bool true))"
@@ -90,26 +100,29 @@ partial def translateExpr (expr : SExpr) : String :=
       else if s.isNamed "if" then
         match argsExpr with
         | .cons c (.cons t (.cons e .nil)) =>
-            s!"(Logic.if_ {translateExpr c} {translateExpr t} {translateExpr e})"
+            if nativeIf then
+              s!"(if Logic.toBool {translateExpr c nativeIf} then {translateExpr t nativeIf} else {translateExpr e nativeIf})"
+            else
+              s!"(Logic.if_ {translateExpr c nativeIf} {translateExpr t nativeIf} {translateExpr e nativeIf})"
         | _ => s!"sorry /- malformed if: {repr expr} -/"
       else if s.isNamed "cond" then
-        translateCond argsExpr
+        translateCond argsExpr nativeIf
       else if s.isNamed "1+" || s.isNamed "1+$inline" then
         match argsExpr with
-        | .cons x .nil => s!"(Logic.plus {translateExpr x} 1)"
+        | .cons x .nil => s!"(Logic.plus {translateExpr x nativeIf} 1)"
         | _ => s!"sorry /- malformed 1+: {repr expr} -/"
       else if s.isNamed "1-" || s.isNamed "1-$inline" then
         match argsExpr with
-        | .cons x .nil => s!"(Logic.minus {translateExpr x} 1)"
+        | .cons x .nil => s!"(Logic.minus {translateExpr x nativeIf} 1)"
         | _ => s!"sorry /- malformed 1-: {repr expr} -/"
       else if s.isNamed "cadr" then
         match argsExpr with
-        | .cons x .nil => s!"(Logic.car (Logic.cdr {translateExpr x}))"
+        | .cons x .nil => s!"(Logic.car (Logic.cdr {translateExpr x nativeIf}))"
         | _ => s!"sorry /- malformed cadr: {repr expr} -/"
       else if s.isNamed "declare" then
         "" -- skip declarations
       else
-        let args := match argsExpr.toList? with | some l => l.map translateExpr | none => []
+        let args := match argsExpr.toList? with | some l => l.map (translateExpr · nativeIf) | none => []
         let fn := translateSymbol s
         if ["Logic.plus", "Logic.times", "Logic.and", "Logic.or"].contains fn && args.length > 2 then
           foldNary fn args
@@ -196,14 +209,38 @@ private partial def findRecursiveArg (name : Symbol) (formals : List Symbol) (bo
     | _ => none
   go body
 
+/-- Replace all occurrences of `(Logic.cdr argName)` with `_cdr_argName` in translated body. -/
+private def substituteCdr (body : String) (argName : String) : String :=
+  body.replace s!"(Logic.cdr {argName})" s!"_cdr_{argName}"
+
+/-- Extract the base-case expression from an `(if_ (endp arg) base recursive)` body. -/
+private partial def extractBaseCase (body : SExpr) (argName : String) : Option SExpr :=
+  match body with
+  | .cons (.atom (.symbol s)) (.cons guard (.cons base (.cons _ .nil))) =>
+    if s.isNamed "if" then
+      match guard with
+      | .cons (.atom (.symbol endpSym)) (.cons (.atom (.symbol argSym)) .nil) =>
+        if endpSym.isNamed "endp" && argSym.isNamed argName then some base
+        else none
+      | _ => none
+    else none
+  | _ => none
+
 def translateDefun (name : Symbol) (formals : List Symbol) (body : SExpr) : String :=
   let nameStr := translateSymbol name
   let fmls := String.intercalate " " (formals.map fun s => s!"({translateSymbol s} : SExpr)")
-  let bodyStr := translateExpr body
   match findRecursiveArg name formals body with
   | some arg =>
-    s!"def {nameStr} {fmls} : SExpr :=\n  {bodyStr}\ntermination_by SExpr.acl2Count {arg}\ndecreasing_by all_goals (simp_all [Logic.car, Logic.cdr, Logic.endp, Logic.consp, Logic.toBool, SExpr.acl2Count]; omega)"
+    -- Recursive function: use native `if toBool` for termination + acl2Count
+    let bodyStr := translateExpr body (nativeIf := true)
+    -- Detect guard style: endp (negated) or consp (direct)
+    let usesEndp := (bodyStr.splitOn "Logic.endp").length > 1
+    let decreasingLemma := if usesEndp
+      then "ACL2.acl2Count_cdr_lt_of_not_endp"
+      else "ACL2.acl2Count_cdr_lt_of_consp"
+    s!"def {nameStr} {fmls} : SExpr :=\n  {bodyStr}\ntermination_by SExpr.acl2Count {arg}\ndecreasing_by all_goals exact {decreasingLemma} (by simp_all)"
   | none =>
+    let bodyStr := translateExpr body
     -- Check if body references the function name at all (simple recursion check)
     let isRecursive := (bodyStr.splitOn nameStr).length > 1
     if isRecursive then
