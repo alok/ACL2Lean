@@ -34,6 +34,15 @@ def translateSymbol (s : Symbol) : String :=
   else if name = "posp" then "Logic.posp"
   else if name = "natp" then "Logic.natp"
   else if name = "expt" then "Logic.expt"
+  else if name = "endp" then "Logic.endp"
+  else if name = "first" then "Logic.first"
+  else if name = "second" then "Logic.second"
+  else if name = "append" then "Logic.append"
+  else if name = "len" then "Logic.len"
+  else if name = "true-listp" then "Logic.trueListp"
+  else if name = "lexorder" then "lexorder"
+  else if name = "stringp" then "Logic.stringp"
+  else if name = "string-append" then "Logic.string_append"
   else
     let name := name.replace "-" "_"
     let name := name.replace "!" "_bang"
@@ -49,6 +58,19 @@ def foldNary (fn : String) (args : List String) : String :=
   | [] => "SExpr.nil"
   | [a] => a
   | a :: rest => s!"({fn} {a} {foldNary fn rest})"
+
+mutual
+/-- Translate `(cond (test1 val1) (test2 val2) ... (t default))` to nested if_. -/
+partial def translateCond (clauses : SExpr) : String :=
+  match clauses with
+  | .cons (.cons test (.cons val .nil)) rest =>
+    match test with
+    | .atom (.symbol s) =>
+      if s.isNamed "t" then translateExpr val
+      else s!"(Logic.if_ {translateExpr test} {translateExpr val} {translateCond rest})"
+    | _ => s!"(Logic.if_ {translateExpr test} {translateExpr val} {translateCond rest})"
+  | .nil => "SExpr.nil"
+  | _ => s!"sorry /- malformed cond: {repr clauses} -/"
 
 partial def translateExpr (expr : SExpr) : String :=
   match expr with
@@ -70,6 +92,22 @@ partial def translateExpr (expr : SExpr) : String :=
         | .cons c (.cons t (.cons e .nil)) =>
             s!"(Logic.if_ {translateExpr c} {translateExpr t} {translateExpr e})"
         | _ => s!"sorry /- malformed if: {repr expr} -/"
+      else if s.isNamed "cond" then
+        translateCond argsExpr
+      else if s.isNamed "1+" || s.isNamed "1+$inline" then
+        match argsExpr with
+        | .cons x .nil => s!"(Logic.plus {translateExpr x} 1)"
+        | _ => s!"sorry /- malformed 1+: {repr expr} -/"
+      else if s.isNamed "1-" || s.isNamed "1-$inline" then
+        match argsExpr with
+        | .cons x .nil => s!"(Logic.minus {translateExpr x} 1)"
+        | _ => s!"sorry /- malformed 1-: {repr expr} -/"
+      else if s.isNamed "cadr" then
+        match argsExpr with
+        | .cons x .nil => s!"(Logic.car (Logic.cdr {translateExpr x}))"
+        | _ => s!"sorry /- malformed cadr: {repr expr} -/"
+      else if s.isNamed "declare" then
+        "" -- skip declarations
       else
         let args := match argsExpr.toList? with | some l => l.map translateExpr | none => []
         let fn := translateSymbol s
@@ -77,6 +115,16 @@ partial def translateExpr (expr : SExpr) : String :=
           foldNary fn args
         else if args.isEmpty then fn else s!"({fn} {String.intercalate " " args})"
   | _ => s!"sorry /- {repr expr} -/"
+end -- mutual (translateCond / translateExpr)
+
+mutual
+partial def collectVarsCond (clauses : SExpr) (acc : List String) : List String :=
+  match clauses with
+  | .cons (.cons test (.cons val .nil)) rest =>
+    let acc := collectVars test acc
+    let acc := collectVars val acc
+    collectVarsCond rest acc
+  | _ => acc
 
 partial def collectVars (expr : SExpr) (acc : List String := []) : List String :=
   match expr with
@@ -96,11 +144,16 @@ partial def collectVars (expr : SExpr) (acc : List String := []) : List String :
             let acc := collectVars t acc
             collectVars e acc
         | _ => acc
+      else if s.isNamed "cond" then
+        collectVarsCond argsExpr acc
+      else if s.isNamed "declare" then
+        acc
       else
         match argsExpr.toList? with
         | some args => args.foldl (fun a e => collectVars e a) acc
         | none => acc
   | _ => acc
+end -- mutual
 
 def sanitizeName (s : String) : String :=
   let s := s.replace "-" "_"
@@ -111,10 +164,52 @@ def sanitizeName (s : String) : String :=
   let s := s.replace "Logic." ""
   s
 
+/-- Find which formals are recursed on (appear as argument to cdr in recursive calls). -/
+private partial def findRecursiveArg (name : Symbol) (formals : List Symbol) (body : SExpr) : Option String :=
+  -- Simple heuristic: if the body contains `(name ... (cdr formal) ...)`,
+  -- the function recurs on that formal via cdr.
+  -- For the sorting corpus this covers most cases.
+  let nameStr := name.normalizedName
+  let rec go (expr : SExpr) : Option String :=
+    match expr with
+    | .cons (.atom (.symbol s)) args =>
+      if s.isNamed nameStr then
+        -- Check args for (cdr formal)
+        match args.toList? with
+        | some argList =>
+          argList.findSome? fun arg =>
+            match arg with
+            | .cons (.atom (.symbol cdrSym)) (.cons (.atom (.symbol formal)) .nil) =>
+              if cdrSym.isNamed "cdr" then
+                formals.find? (fun f => f.isNamed formal.normalizedName) |>.map translateSymbol
+              else none
+            | _ => none
+        | none => none
+      else
+        match args.toList? with
+        | some argList => argList.findSome? go
+        | none => none
+    | .cons a b =>
+      match go a with
+      | some r => some r
+      | none => go b
+    | _ => none
+  go body
+
 def translateDefun (name : Symbol) (formals : List Symbol) (body : SExpr) : String :=
   let nameStr := translateSymbol name
   let fmls := String.intercalate " " (formals.map fun s => s!"({translateSymbol s} : SExpr)")
-  s!"partial def {nameStr} {fmls} : SExpr :=\n  {translateExpr body}"
+  let bodyStr := translateExpr body
+  match findRecursiveArg name formals body with
+  | some arg =>
+    s!"def {nameStr} {fmls} : SExpr :=\n  {bodyStr}\ntermination_by SExpr.acl2Count {arg}\ndecreasing_by all_goals (simp_all [Logic.car, Logic.cdr, Logic.endp, Logic.consp, Logic.toBool, SExpr.acl2Count]; omega)"
+  | none =>
+    -- Check if body references the function name at all (simple recursion check)
+    let isRecursive := (bodyStr.splitOn nameStr).length > 1
+    if isRecursive then
+      s!"partial def {nameStr} {fmls} : SExpr :=\n  {bodyStr}"
+    else
+      s!"def {nameStr} {fmls} : SExpr :=\n  {bodyStr}"
 
 private def renderMetadataComment (info : TheoremInfo) : String :=
   let ruleClassLines :=
