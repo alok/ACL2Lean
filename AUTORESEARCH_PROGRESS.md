@@ -160,3 +160,35 @@ Next best ideas:
 1. interpret the imported `ProofInstruction` tree for a tiny replay prototype, starting with `quiet!`, `:bash`, `:in-theory`, and `:repeat :prove`
 2. parse additional hint metadata such as `:cases` and more nested theory combinators so more ACL2 books import replay-relevant structure cleanly
 3. feed the imported instruction tree into `ACL2Lean.ProofMode` so the infoview can show real theorem steps rather than the current demo snapshot
+
+## 2026-03-19 Iteration 5
+
+Completed this iteration:
+
+- taught `ACL2Lean.ProofMode` to derive a real widget `Snapshot` from imported `TheoremInfo` plus the preceding top-level ACL2 `in-theory` context instead of only using the hard-coded demo props
+- added `#acl_imported_panel "<book>" "<theorem>"`, which loads an ACL2 book during elaboration and renders an imported-theorem proof-mode panel
+- updated `ACL2Lean/ProofModeDemo.lean` to exercise the new path on `acl2_samples/apply-model-apply-prim.lisp` / `apply$-prim-meta-fn-correct`
+- updated `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md` so the imported-panel path is part of the documented replay/UI seam
+
+Verification:
+
+- research branch commit `77052ac`: `lake build ACL2Lean.ProofMode ACL2Lean.ProofModeDemo Main`
+- research branch commit `77052ac`: `lake build`
+- research branch commit `77052ac`: `uv run python Verify.py`
+- research branch commit `77052ac`: `./.lake/build/bin/acl2lean metadata acl2_samples/apply-model-apply-prim.lisp 'apply$-prim-meta-fn-correct' | sed -n '1,80p'`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- proof-mode now displays imported checkpoints, runes/facts, and next-move suggestions from a real ACL2 theorem instead of only the synthetic `demoSnapshot`
+- the imported panel is still a replay plan view, not checked replay state: long `union-theories` / `set-difference-theories` forms still surface as raw summaries, and the steps are not yet being executed against Lean goals
+
+Next best ideas:
+
+1. interpret `:bash`, `:in-theory`, and `:repeat :prove` against real Lean goals so the imported panel can report checked replay progress
+2. parse richer nested theory combinators so the rune pane can decompose `union-theories` / `set-difference-theories` / `current-theory` instead of dumping raw expressions
+3. connect the imported snapshot path to live tactic-state updates so the panel can mix imported ACL2 provenance with actual Lean checkpoint state
