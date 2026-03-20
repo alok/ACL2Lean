@@ -308,6 +308,43 @@ class HintBridgeParsingTests(unittest.TestCase):
             )
         )
 
+    def test_non_rec_forward_chaining_warning_becomes_disable_definition_action(self) -> None:
+        transcript = dedent(
+            """
+            MODAPP !>>
+            ACL2 Observation in ( DEFTHM BADGE-TYPE ...):  The :TRIGGER-TERMS for
+            the :FORWARD-CHAINING rule BADGE-TYPE will consist of the list containing
+            (BADGE FN).
+
+            ACL2 Warning [Non-rec] in ( DEFTHM BADGE-TYPE ...):  The term (BADGE FN)
+            contains the function symbol BADGE, which has a non-recursive definition.
+            Unless this definition is disabled, (BADGE FN) is unlikely ever to
+            occur as a trigger for BADGE-TYPE.
+
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM BADGE-TYPE ...)
+            Rules: NIL
+            Warnings:  Non-rec
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             BADGE-TYPE
+            MODAPP !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "badge-type")
+        self.assertTrue(
+            any(
+                action["kind"] == "disable-definition"
+                and action["summary"] == "disable (:DEFINITION BADGE) so trigger term (BADGE FN) can arise for BADGE-TYPE"
+                and action["targets"] == ["(:DEFINITION BADGE)", "BADGE-TYPE", "(BADGE FN)"]
+                for action in artifact["actions"]
+            )
+        )
+
     def test_free_warning_becomes_bind_free_variable_action(self) -> None:
         transcript = dedent(
             """

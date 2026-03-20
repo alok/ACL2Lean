@@ -70,6 +70,12 @@ FREE_WARNING_WITH_TRIGGER_RE = re.compile(
     r"(?P<hypothesis>.+?)\s+among the hypotheses of the conjecture being rewritten\.",
     re.IGNORECASE,
 )
+FORWARD_CHAINING_NONREC_WARNING_RE = re.compile(
+    r"The term\s+(?P<trigger>.+?)\s+contains the function symbol\s+(?P<function>[^\s,]+),\s+"
+    r"which has a non-\s*recursive definition\.\s+Unless this definition is disabled,\s+"
+    r"(?P=trigger)\s+is unlikely ever to occur as a trigger for\s+(?P<theorem>[^\s.]+)\.",
+    re.IGNORECASE,
+)
 SPLITTER_RULE_RE = re.compile(r"^\s*([^:]+):\s*(.+?)\s*$")
 SPLITTER_ENTRY_RE = re.compile(r"^[^(\s:][^:]*:\s*.+$")
 SPLITTER_NOTE_TARGET_RE = re.compile(
@@ -175,6 +181,10 @@ def nonrec_action_summary(rule_class: str, theorem_name: str, definition_rune: s
     if rule_class.lower() == "rewrite":
         return f"disable {definition_rune} so rewrite from {theorem_name} can fire"
     return f"disable {definition_rune} so :{rule_class.upper()} from {theorem_name} can fire"
+
+
+def trigger_nonrec_action_summary(theorem_name: str, definition_rune: str, trigger_term: str) -> str:
+    return f"disable {definition_rune} so trigger term {trigger_term} can arise for {theorem_name}"
 
 
 @dataclass(frozen=True)
@@ -845,6 +855,22 @@ def extract_warning_actions(warnings: list[str]) -> list[dict[str, object]]:
                         targets=[definition_rune, theorem_name],
                     )
                 )
+
+        trigger_nonrec_match = FORWARD_CHAINING_NONREC_WARNING_RE.search(warning_text)
+        if trigger_nonrec_match:
+            theorem_name = trigger_nonrec_match.group("theorem").strip()
+            function_name = trigger_nonrec_match.group("function").strip()
+            trigger_term = trigger_nonrec_match.group("trigger").strip()
+            definition_rune = f"(:DEFINITION {function_name})"
+            actions.append(
+                make_action(
+                    "disable-definition",
+                    "warning",
+                    trigger_nonrec_action_summary(theorem_name, definition_rune, trigger_term),
+                    warning,
+                    targets=[definition_rune, theorem_name, trigger_term],
+                )
+            )
 
         free_match = FREE_WARNING_WITH_TRIGGER_RE.search(warning_text)
         if free_match is None:
