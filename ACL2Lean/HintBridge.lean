@@ -55,6 +55,17 @@ structure UsePayload where
   bindings : List UseInstanceBinding := []
   deriving Inhabited, Repr
 
+structure SplitGoalPayload where
+  splitterName : String
+  payloadText : String
+  goalTarget : Option String := none
+  deriving Inhabited, Repr
+
+structure TypedTermPayload where
+  term : SExpr
+  goalTarget : Option String := none
+  deriving Inhabited, Repr
+
 structure DynamicCheckpoint where
   kind : String
   label : String
@@ -237,6 +248,34 @@ def structuredLines (payload : UsePayload) (indent : Nat := 0) : List String :=
 
 end UsePayload
 
+namespace SplitGoalPayload
+
+def payloadExprs (payload : SplitGoalPayload) : List SExpr :=
+  payloadExprsFromPayload payload.payloadText
+
+def payloadItems (payload : SplitGoalPayload) : List String :=
+  match payload.payloadExprs.map toString with
+  | [] => [payload.payloadText]
+  | items => items
+
+def summary (payload : SplitGoalPayload) : String :=
+  match payload.payloadItems with
+  | [] => payload.splitterName
+  | items => s!"{payload.splitterName} with {String.intercalate ", " items}"
+
+def structuredLines (payload : SplitGoalPayload) (indent : Nat := 0) : List String :=
+  renderLabeledItems "splitter" [payload.splitterName] indent ++
+    renderLabeledItems "split-term" payload.payloadItems indent
+
+end SplitGoalPayload
+
+namespace TypedTermPayload
+
+def structuredLines (payload : TypedTermPayload) (indent : Nat := 0) : List String :=
+  renderLabeledItems "typed-term" [toString payload.term] indent
+
+end TypedTermPayload
+
 namespace DynamicAction
 
 def nonGoalTargets (action : DynamicAction) : List String :=
@@ -386,10 +425,39 @@ def rewriteOverlapPayload? (action : DynamicAction) : Option RewriteOverlapPaylo
     let generatedTheorem :: existingRule :: _ := action.targets | none
     some { generatedTheorem, existingRule }
 
+def splitGoalPayload? (action : DynamicAction) : Option SplitGoalPayload := do
+  if action.kind != "split-goal" then
+    none
+  else
+    let splitterName :: payloadText :: _ := action.targets | none
+    some { splitterName, payloadText, goalTarget := action.goal_target }
+
+def splitGoalItems (action : DynamicAction) : List String :=
+  match action.splitGoalPayload? with
+  | some payload => payload.payloadItems
+  | none => []
+
+def typedTermPayload? (action : DynamicAction) : Option TypedTermPayload := do
+  if action.kind != "typed-term" then
+    none
+  else
+    let termText ← action.nonGoalTargets.head?
+    let term ← parseSingleSExpr? termText
+    some { term, goalTarget := action.goal_target }
+
+def typedTermItems (action : DynamicAction) : List String :=
+  match action.typedTermPayload? with
+  | some payload => [toString payload.term]
+  | none => []
+
 def structuredLines (action : DynamicAction) (indent : Nat := 0) : List String :=
   match action.kind with
   | "use" => action.useLines indent
   | "in-theory" => action.theoryLines indent
+  | "split-goal" =>
+      match action.splitGoalPayload? with
+      | some payload => payload.structuredLines indent
+      | none => []
   | "clause-processor" => renderLabeledItems "clause-processor" action.clauseProcessorItems indent
   | "otf-flg" =>
       match action.otfFlagExpr? with
@@ -440,6 +508,10 @@ def structuredLines (action : DynamicAction) (indent : Nat := 0) : List String :
           renderLabeledItems "generated-theorem" [payload.generatedTheorem] indent ++
             renderLabeledItems "existing-rule" [payload.existingRule] indent
       | none => []
+  | "typed-term" =>
+      match action.typedTermPayload? with
+      | some payload => payload.structuredLines indent
+      | none => []
   | _ => []
 
 end DynamicAction
@@ -464,6 +536,7 @@ private def formatReplayEntry (source : String) (goalTarget : Option String) (de
 structure DynamicReplayState where
   theoryTimeline : List String := []
   useTimeline : List String := []
+  splitTimeline : List String := []
   clauseProcessors : List String := []
   expandTimeline : List String := []
   caseTimeline : List String := []
@@ -481,6 +554,7 @@ namespace DynamicReplayState
 def isEmpty (state : DynamicReplayState) : Bool :=
   state.theoryTimeline.isEmpty &&
     state.useTimeline.isEmpty &&
+    state.splitTimeline.isEmpty &&
     state.clauseProcessors.isEmpty &&
     state.expandTimeline.isEmpty &&
     state.caseTimeline.isEmpty &&
@@ -521,6 +595,7 @@ def noteLines (state : DynamicReplayState) : List String :=
   summaryLines ++
     (state.theoryTimeline.map (fun line => s!"Replay theory: {line}")) ++
     (state.useTimeline.map (fun line => s!"Replay use: {line}")) ++
+    (state.splitTimeline.map (fun line => s!"Replay split: {line}")) ++
     (state.clauseProcessors.map (fun line => s!"Replay clause-processor: {line}")) ++
     (state.expandTimeline.map (fun line => s!"Replay expand: {line}")) ++
     (state.caseTimeline.map (fun line => s!"Replay cases: {line}")) ++
@@ -571,6 +646,13 @@ def replayState (artifact : DynamicArtifact) : DynamicReplayState :=
               | none => action.summary
             ({ state with
                 useTimeline := state.useTimeline ++ [formatReplayEntry action.source action.goal_target detail] } : DynamicReplayState)
+        | "split-goal" =>
+            let detail :=
+              match action.splitGoalPayload? with
+              | some payload => payload.summary
+              | none => action.summary
+            ({ state with
+                splitTimeline := state.splitTimeline ++ [formatReplayEntry action.source action.goal_target detail] } : DynamicReplayState)
         | "clause-processor" =>
             match action.clauseProcessorItems with
             | [] => state
@@ -596,7 +678,7 @@ def replayState (artifact : DynamicArtifact) : DynamicReplayState :=
                       state.caseTimeline ++
                         items.map (fun item => formatReplayEntry action.source action.goal_target item) } : DynamicReplayState)
         | "typed-term" =>
-            let terms := action.nonGoalTargets
+            let terms := action.typedTermItems
             if terms.isEmpty then
               state
             else
@@ -637,6 +719,7 @@ def replayState (artifact : DynamicArtifact) : DynamicReplayState :=
   ({ state with
       theoryTimeline := dedupStrings state.theoryTimeline
       useTimeline := dedupStrings state.useTimeline
+      splitTimeline := dedupStrings state.splitTimeline
       clauseProcessors := dedupStrings state.clauseProcessors
       expandTimeline := dedupStrings state.expandTimeline
       caseTimeline := dedupStrings state.caseTimeline
@@ -677,12 +760,13 @@ private def renderReplayState (state : DynamicReplayState) : List String :=
       | none => []
     let theory := renderLabeledItems "theory-timeline" state.theoryTimeline 2
     let uses := renderLabeledItems "use-timeline" state.useTimeline 2
+    let splits := renderLabeledItems "split-timeline" state.splitTimeline 2
     let clauseProcessors := renderLabeledItems "clause-processors" state.clauseProcessors 2
     let expands := renderLabeledItems "expand-timeline" state.expandTimeline 2
     let cases := renderLabeledItems "case-timeline" state.caseTimeline 2
     let typedTerms := renderLabeledItems "typed-terms" state.typedTerms 2
     "replay-state:" ::
-      induction ++ doNotInduct ++ otfFlag ++ theory ++ uses ++ clauseProcessors ++ expands ++ cases ++ typedTerms
+      induction ++ doNotInduct ++ otfFlag ++ theory ++ uses ++ splits ++ clauseProcessors ++ expands ++ cases ++ typedTerms
 
 private def renderActionLines (action : DynamicAction) : List String :=
   let goalLine :=
@@ -889,6 +973,45 @@ private def dynamicDoNotInductPayloadParses : Bool :=
 
 #guard dynamicDoNotInductPayloadParses
 
+private def dynamicSplitGoalPayloadParses : Bool :=
+  let action : DynamicAction :=
+    { kind := "split-goal"
+      source := "splitter"
+      summary := "split using if-intro with ((:DEFINITION GCD-PROG!)) in Goal''"
+      goal_target := some "Goal''"
+      targets := ["if-intro", "((:DEFINITION GCD-PROG!))", "Goal''"]
+      detail := "if-intro: ((:DEFINITION GCD-PROG!))"
+    }
+  (match action.splitGoalPayload? with
+    | some payload =>
+        payload.splitterName = "if-intro" &&
+          payload.goalTarget = some "Goal''" &&
+          payload.payloadItems = ["(:definition gcd-prog!)"]
+    | none => false) &&
+    (action.structuredLines 2).any (fun line =>
+      line.contains "splitter:" && line.contains "if-intro") &&
+    (action.structuredLines 2).any (fun line =>
+      line.contains "split-term:" && line.contains "(:definition gcd-prog!)")
+
+#guard dynamicSplitGoalPayloadParses
+
+private def dynamicTypedTermPayloadParses : Bool :=
+  let action : DynamicAction :=
+    { kind := "typed-term"
+      source := "observation"
+      summary := "focus on typed term (CLOG2 N)"
+      goal_target := none
+      targets := ["(CLOG2 N)"]
+      detail := "ACL2 Observation ..."
+    }
+  (match action.typedTermPayload? with
+    | some payload => toString payload.term = "(clog2 n)"
+    | none => false) &&
+    (action.structuredLines 2).any (fun line =>
+      line.contains "typed-term:" && line.contains "(clog2 n)")
+
+#guard dynamicTypedTermPayloadParses
+
 private def dynamicInductPayloadParses : Bool :=
   let action : DynamicAction :=
     { kind := "induct"
@@ -1036,6 +1159,13 @@ private def dynamicReplayStateSummarizesActions : Bool :=
             targets := ["(:INSTANCE NOTE-3 (P P) (Q Q))", "Goal"]
             detail := "Goal: (:USE ((:INSTANCE NOTE-3 (P P) (Q Q))))"
           }
+        , { kind := "split-goal"
+            source := "splitter"
+            summary := "split using if-intro with ((:DEFINITION GCD-PROG!)) in Goal''"
+            goal_target := some "Goal''"
+            targets := ["if-intro", "((:DEFINITION GCD-PROG!))", "Goal''"]
+            detail := "if-intro: ((:DEFINITION GCD-PROG!))"
+          }
         , { kind := "induct"
             source := "induction"
             summary := "induct on (MAKE-PROG1-INDUCTION I N) using rule MAKE-PROG1-INDUCTION"
@@ -1057,6 +1187,13 @@ private def dynamicReplayStateSummarizesActions : Bool :=
             targets := ["T"]
             detail := "(:OTF-FLG T)"
           }
+        , { kind := "typed-term"
+            source := "observation"
+            summary := "focus on typed term (CLOG2 N)"
+            goal_target := none
+            targets := ["(CLOG2 N)"]
+            detail := "ACL2 Observation ..."
+          }
         ]
       checkpoints := []
       progress := []
@@ -1074,8 +1211,14 @@ private def dynamicReplayStateSummarizesActions : Bool :=
     state.theoryTimeline.any (fun line => line.contains "disable floor") &&
     state.theoryTimeline.any (fun line => line.contains "disable (:REWRITE FOO)") &&
     state.useTimeline.any (fun line => line.contains "note-3") &&
+    state.splitTimeline.any (fun line => line.contains "if-intro with (:definition gcd-prog!)") &&
+    state.typedTerms.any (fun line => line.contains "(clog2 n)") &&
     (renderLines artifact).any (fun line =>
-      line.contains "selected-induction: (make-prog1-induction i n) using MAKE-PROG1-INDUCTION @ Goal'")
+      line.contains "selected-induction: (make-prog1-induction i n) using MAKE-PROG1-INDUCTION @ Goal'") &&
+    (renderLines artifact).any (fun line =>
+      line.contains "split-timeline:") &&
+    (renderLines artifact).any (fun line =>
+      line.contains "typed-terms:")
 
 #guard dynamicReplayStateSummarizesActions
 

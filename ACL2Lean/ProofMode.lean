@@ -163,7 +163,7 @@ private def dynamicContextCheckpoint (artifact : ACL2.HintBridge.DynamicArtifact
   let traceCheckpointCount := artifact.checkpoints.length - keyCheckpointCount
   let progressCount := artifact.progress.length
   { title := "Dynamic ACL2 hint extraction"
-    detail := s!"Recovered {keyCheckpointCount} key checkpoints, {traceCheckpointCount} raw goal/subgoal markers, {progressCount} lifecycle progress events, {artifact.actions.length} candidate replay actions, {replayState.theoryTimeline.length} theory steps, {replayState.useTimeline.length} replay uses, {artifact.observations.length} observations, {artifact.warnings.length} warnings, {artifact.inductions.length} induction summaries, {artifact.summary_rules.length} summary rules, and {artifact.hint_events.length} hint-events from the ACL2 proof run."
+    detail := s!"Recovered {keyCheckpointCount} key checkpoints, {traceCheckpointCount} raw goal/subgoal markers, {progressCount} lifecycle progress events, {artifact.actions.length} candidate replay actions, {replayState.theoryTimeline.length} theory steps, {replayState.useTimeline.length} replay uses, {replayState.splitTimeline.length} split steps, {replayState.typedTerms.length} typed-term foci, {artifact.observations.length} observations, {artifact.warnings.length} warnings, {artifact.inductions.length} induction summaries, {artifact.summary_rules.length} summary rules, and {artifact.hint_events.length} hint-events from the ACL2 proof run."
     status :=
       if artifact.checkpoints.isEmpty && artifact.progress.isEmpty && artifact.actions.isEmpty then
         "planned"
@@ -361,7 +361,19 @@ private def actionNote (action : ACL2.HintBridge.DynamicAction) : String :=
     match action.rewriteOverlapPayload? with
     | some payload => " {existing-rule: " ++ payload.existingRule ++ "}"
     | none => ""
-  s!"action {action.source}/{action.kind}{goalTarget}: {action.summary}{targets}{theory}{clauseProcessor}{otfFlag}{inductTerm}{inductionRule}{expand}{cases}{doNotInduct}{disableRule}{disableDefinition}{warningTheorem}{freeVariable}{hypothesis}{triggerTerm}{generatedTheorem}{existingRule}"
+  let splitGoal :=
+    match action.splitGoalPayload? with
+    | some payload => " {splitter: " ++ payload.splitterName ++ "}"
+    | none => ""
+  let splitTerms :=
+    match action.splitGoalItems with
+    | [] => ""
+    | items => " {split-term: " ++ String.intercalate "; " items ++ "}"
+  let typedTerm :=
+    match action.typedTermItems with
+    | [] => ""
+    | items => " {typed-term: " ++ String.intercalate "; " items ++ "}"
+  s!"action {action.source}/{action.kind}{goalTarget}: {action.summary}{targets}{theory}{clauseProcessor}{otfFlag}{inductTerm}{inductionRule}{expand}{cases}{doNotInduct}{disableRule}{disableDefinition}{warningTheorem}{freeVariable}{hypothesis}{triggerTerm}{generatedTheorem}{existingRule}{splitGoal}{splitTerms}{typedTerm}"
 
 private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
   let replayState := artifact.replayState
@@ -403,6 +415,14 @@ private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List
         none
       else
         some "Try ACL2's concrete use timeline before broad manual lemma search."
+    , if replayState.splitTimeline.isEmpty then
+        none
+      else
+        some "Use ACL2's checkpoint-local split timeline to decide whether the next Lean replay step should branch before rewriting."
+    , if replayState.typedTerms.isEmpty then
+        none
+      else
+        some "Use ACL2's typed-term focus as the next Lean simplification or rewriting target instead of scanning the full goal blindly."
     , if artifact.warnings.isEmpty then
         none
       else
@@ -481,9 +501,23 @@ private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.Dynam
         []) ++
       (artifact.actions.foldr
         (fun action acc =>
+          match action.splitGoalPayload? with
+          | some payload =>
+              let payloadLines :=
+                action.splitGoalItems.map (fun item =>
+                  s!"action-split-term {action.source}/{action.kind}: {item}")
+              (s!"action-splitter {action.source}/{action.kind}: {payload.splitterName}" :: payloadLines) ++ acc
+          | none => acc)
+        []) ++
+      (artifact.actions.foldr
+        (fun action acc =>
           match action.doNotInductExpr? with
           | some expr => s!"action-do-not-induct {action.source}/{action.kind}: {expr}" :: acc
           | none => acc)
+        []) ++
+      (artifact.actions.foldr
+        (fun action acc =>
+          (action.typedTermItems.map (fun item => s!"action-typed-term {action.source}/{action.kind}: {item}")) ++ acc)
         []) ++
       (artifact.actions.foldr
         (fun action acc =>
@@ -556,7 +590,7 @@ def snapshotOfDynamicHints
   let doNotInduct := replayState.doNotInductSummary?.getD "none"
   let otfFlag := replayState.otfFlag.getD "none"
   { theoremName := s!"ACL2 emitted hints for {theoremName}"
-    goal := s!"ACL2 dynamic summary:\n  {artifact.summary_form}\n\nDynamic proof context:\n  checkpoints: {artifact.checkpoints.length}\n  lifecycle progress events: {artifact.progress.length}\n  candidate actions: {artifact.actions.length}\n  theory timeline entries: {replayState.theoryTimeline.length}\n  replay use suggestions: {replayState.useTimeline.length}\n  selected induction: {selectedInduction}\n  do-not-induct: {doNotInduct}\n  otf-flg: {otfFlag}\n  observations: {artifact.observations.length}\n  warnings: {artifact.warnings.length}\n  induction summaries: {artifact.inductions.length}\n  summary rules: {artifact.summary_rules.length}\n  hint-events: {artifact.hint_events.length}\n  prover steps: {artifact.prover_steps.getD 0}"
+    goal := s!"ACL2 dynamic summary:\n  {artifact.summary_form}\n\nDynamic proof context:\n  checkpoints: {artifact.checkpoints.length}\n  lifecycle progress events: {artifact.progress.length}\n  candidate actions: {artifact.actions.length}\n  theory timeline entries: {replayState.theoryTimeline.length}\n  replay use suggestions: {replayState.useTimeline.length}\n  split timeline entries: {replayState.splitTimeline.length}\n  typed-term foci: {replayState.typedTerms.length}\n  selected induction: {selectedInduction}\n  do-not-induct: {doNotInduct}\n  otf-flg: {otfFlag}\n  observations: {artifact.observations.length}\n  warnings: {artifact.warnings.length}\n  induction summaries: {artifact.inductions.length}\n  summary rules: {artifact.summary_rules.length}\n  hint-events: {artifact.hint_events.length}\n  prover steps: {artifact.prover_steps.getD 0}"
     checkpoints := dynamicCheckpoints artifact
     runes := dynamicRunes artifact
     nextMoves := dynamicNextMoves artifact
@@ -639,6 +673,13 @@ private def dynamicStructuredPayloadsSurfaceInNotes : Bool :=
             targets := ["T"]
             detail := "(:OTF-FLG T)"
           }
+        , { kind := "split-goal"
+            source := "splitter"
+            summary := "split using if-intro with ((:DEFINITION GCD-PROG!)) in Goal''"
+            goal_target := some "Goal''"
+            targets := ["if-intro", "((:DEFINITION GCD-PROG!))", "Goal''"]
+            detail := "if-intro: ((:DEFINITION GCD-PROG!))"
+          }
         , { kind := "induct"
             source := "induction"
             summary := "induct on (MAKE-PROG1-INDUCTION I N) using rule MAKE-PROG1-INDUCTION"
@@ -688,6 +729,13 @@ private def dynamicStructuredPayloadsSurfaceInNotes : Bool :=
             targets := ["LEMMA-4", "|(+ y x)|"]
             detail := "ACL2 Warning [Subsume] ..."
           }
+        , { kind := "typed-term"
+            source := "observation"
+            summary := "focus on typed term (CLOG2 N)"
+            goal_target := none
+            targets := ["(CLOG2 N)"]
+            detail := "ACL2 Observation ..."
+          }
         ]
       checkpoints := []
       progress := []
@@ -710,7 +758,12 @@ private def dynamicStructuredPayloadsSurfaceInNotes : Bool :=
     notes.any (fun note => note.contains "action-induct-term induction/induct:" && note.toLower.contains "make-prog1-induction") &&
     notes.any (fun note => note.contains "action-induction-rule induction/induct: MAKE-PROG1-INDUCTION") &&
     notes.any (fun note => note.contains "action-expand transcript-hint/expand:" && note.contains "ev$") &&
+    notes.any (fun note => note.contains "Replay split: splitter @ Goal'': if-intro with (:definition gcd-prog!)") &&
+    notes.any (fun note => note.contains "action-splitter splitter/split-goal: if-intro") &&
+    notes.any (fun note => note.contains "action-split-term splitter/split-goal: (:definition gcd-prog!)") &&
     notes.any (fun note => note.contains "action-do-not-induct transcript-hint/do-not-induct:" && note.contains "T") &&
+    notes.any (fun note => note.contains "Replay typed-term: observation: (clog2 n)") &&
+    notes.any (fun note => note.contains "action-typed-term observation/typed-term: (clog2 n)") &&
     notes.any (fun note => note.contains "action-disable-rule warning/disable-rule:" && note.contains "NBR-CALLS-FLOG2-UPPER-BOUND") &&
     notes.any (fun note => note.contains "action-disable-definition warning/disable-definition:" && note.contains "(:DEFINITION POSP)") &&
     notes.any (fun note => note.contains "action-warning-theorem warning/disable-definition:" && note.contains "LEMMA-2") &&
