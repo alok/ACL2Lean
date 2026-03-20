@@ -1,5 +1,6 @@
 import ACL2Lean.Logic
 import ACL2Lean.ImportedRegistry
+import ACL2Lean.Tactics
 
 open ACL2 ACL2.Logic
 
@@ -755,6 +756,22 @@ theorem nbr_calls_flog2_upper_bound (n : SExpr) :
           simp [Logic.and, Logic.implies, Logic.posp]
 
 acl2_imported "nbr-calls-flog2-upper-bound" nbr_calls_flog2_upper_bound
+
+/--
+First registry-backed replay seed for ACL2's dynamic `:USE
+NBR-CALLS-FLOG2-UPPER-BOUND` guidance on
+`nbr-calls-flog2-is-logarithmic`.
+-/
+private theorem replay_seed_nbr_calls_flog2_upper_bound (n : SExpr) :
+    Logic.toBool
+      (Logic.and
+        (Logic.implies (Logic.and (Logic.posp n) (Logic.evenp n))
+          (Logic.le (nbrCallsFlog2 n)
+            (Logic.plus (intExpr 1) (Logic.times (intExpr 2) (flog2 n)))))
+        (Logic.implies (Logic.and (Logic.posp n) (Logic.oddp n))
+          (Logic.le (nbrCallsFlog2 n)
+            (Logic.plus (intExpr 2) (Logic.times (intExpr 2) (flog2 n)))))) = true := by
+  acl2_use "nbr-calls-flog2-upper-bound"
 
 /--
 Reconstruction of ACL2 theorem `nbr-calls-flog2-is-logarithmic` from

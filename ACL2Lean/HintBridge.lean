@@ -799,33 +799,61 @@ def noteLines (state : DynamicReplayState) : List String :=
 
 end DynamicReplayState
 
+structure ResolvedImportedUse where
+  source : String
+  goalTarget : Option String
+  acl2Name : String
+  declNames : List Name
+  deriving Inhabited, Repr, DecidableEq
+
+namespace ResolvedImportedUse
+
+def summary (entry : ResolvedImportedUse) : String :=
+  s!"{entry.acl2Name} -> {String.intercalate ", " (entry.declNames.map toString)}"
+
+def line (entry : ResolvedImportedUse) : String :=
+  formatReplayEntry entry.source entry.goalTarget entry.summary
+
+def replaySeedTactic (entry : ResolvedImportedUse) : String :=
+  formatReplayEntry entry.source entry.goalTarget s!"acl2_use \"{entry.acl2Name}\""
+
+end ResolvedImportedUse
+
 namespace DynamicArtifact
 
-private def resolvedImportedUseLine
-    (action : DynamicAction)
-    (acl2Name : String)
-    (declNames : List Name) : String :=
-  formatReplayEntry action.source action.goal_target
-    s!"{acl2Name} -> {String.intercalate ", " (declNames.map toString)}"
+def resolvedImportedUses
+    (artifact : DynamicArtifact)
+    (registry : ImportedRegistry.Snapshot := {}) : List ResolvedImportedUse :=
+  artifact.actions.foldl
+    (fun acc action =>
+      match action.useLookupName? with
+      | some acl2Name =>
+          match ImportedRegistry.resolve registry acl2Name with
+          | [] => acc
+          | declNames =>
+              let entry :=
+                { source := action.source
+                  goalTarget := action.goal_target
+                  acl2Name
+                  declNames }
+              if acc.any (· == entry) then acc else acc ++ [entry]
+      | none => acc)
+    []
 
 def resolvedImportedUseLines
     (artifact : DynamicArtifact)
     (registry : ImportedRegistry.Snapshot := {}) : List String :=
-  dedupStrings <|
-    artifact.actions.foldr
-      (fun action acc =>
-        match action.useLookupName? with
-        | some acl2Name =>
-            match ImportedRegistry.resolve registry acl2Name with
-            | [] => acc
-            | declNames => resolvedImportedUseLine action acl2Name declNames :: acc
-        | none => acc)
-      []
+  artifact.resolvedImportedUses registry |>.map ResolvedImportedUse.line
 
 def resolvedImportedUseCount
     (artifact : DynamicArtifact)
     (registry : ImportedRegistry.Snapshot := {}) : Nat :=
-  (artifact.resolvedImportedUseLines registry).length
+  (artifact.resolvedImportedUses registry).length
+
+def replaySeedTacticLines
+    (artifact : DynamicArtifact)
+    (registry : ImportedRegistry.Snapshot := {}) : List String :=
+  artifact.resolvedImportedUses registry |>.map ResolvedImportedUse.replaySeedTactic
 
 private def theoryGuidanceOf : TheoryExpr → TheoryGuidance
   | .enable items => { enables := items.map toString }
@@ -1147,6 +1175,8 @@ def renderLines
   let replay := renderReplayState replayState
   let resolvedUses :=
     renderBlockSection "resolved-imported-uses:" (artifact.resolvedImportedUseLines registry)
+  let replaySeeds :=
+    renderBlockSection "replay-seed-tactics:" (artifact.replaySeedTacticLines registry)
   let observations := renderBlockSection "observations:" artifact.observations
   let warnings := renderBlockSection "warnings:" artifact.warnings
   let inductions := renderBlockSection "inductions:" artifact.inductions
@@ -1172,7 +1202,7 @@ def renderLines
             , s!"    {entry.text.replace "\n" "\n    "}"
             ] ++ acc)
           []
-  header ++ loadNote ++ loadSteps ++ summary ++ summaryRules ++ hintEvents ++ splitterRules ++ warningKinds ++ summaryTime ++ proverSteps ++ actions ++ runes ++ replay ++ resolvedUses ++ observations ++ warnings ++ inductions ++ progress ++ checkpoints
+  header ++ loadNote ++ loadSteps ++ summary ++ summaryRules ++ hintEvents ++ splitterRules ++ warningKinds ++ summaryTime ++ proverSteps ++ actions ++ runes ++ replay ++ resolvedUses ++ replaySeeds ++ observations ++ warnings ++ inductions ++ progress ++ checkpoints
 
 private def dynamicExpandPayloadParses : Bool :=
   let action : DynamicAction :=
@@ -1536,9 +1566,12 @@ private def dynamicResolvedImportedUsesRender : Bool :=
     }
   let lines := renderLines artifact registry
   lines.any (·.contains "resolved-imported-uses:") &&
+    lines.any (·.contains "replay-seed-tactics:") &&
     lines.any (fun line =>
       let lower := line.toLower
-      lower.contains "nbr-calls-flog2-upper-bound -> acl2.imported.log2replay.nbr_calls_flog2_upper_bound")
+      lower.contains "nbr-calls-flog2-upper-bound -> acl2.imported.log2replay.nbr_calls_flog2_upper_bound") &&
+    lines.any (fun line =>
+      line.toLower.contains "acl2_use \"nbr-calls-flog2-upper-bound\"")
 
 #guard dynamicResolvedImportedUsesRender
 

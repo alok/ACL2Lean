@@ -380,7 +380,7 @@ private def dynamicNextMoves
     (registry : ACL2.ImportedRegistry.Snapshot := {}) : List String :=
   let replayState := artifact.replayState
   let runeProfile := artifact.runeProfile
-  let resolvedUses := artifact.resolvedImportedUseLines registry
+  let replaySeeds := artifact.replaySeedTacticLines registry
   dedupStrings <|
     (artifact.actions.map actionSummary) ++
     [ if runeProfile.simpCandidates.isEmpty then
@@ -427,10 +427,10 @@ private def dynamicNextMoves
         some "Respect ACL2's do-not-induct guidance when choosing between simplification and induction on the Lean side."
     , if replayState.useTimeline.isEmpty then
         none
-      else if resolvedUses.isEmpty then
+      else if replaySeeds.isEmpty then
         some "Try ACL2's concrete use timeline before broad manual lemma search."
       else
-        some "Start replay from the resolved imported Lean theorems named by ACL2's use timeline before searching manually."
+        some s!"Start replay from ACL2's resolved use guidance with {replaySeeds.headD "acl2_use \"...\""} before searching manually."
     , if replayState.splitTimeline.isEmpty then
         none
       else
@@ -453,6 +453,8 @@ private def dynamicNotes
   let runeProfile := artifact.runeProfile
   let resolvedUses :=
     artifact.resolvedImportedUseLines registry |>.map (fun line => s!"resolved-imported-use: {line}")
+  let replaySeeds :=
+    artifact.replaySeedTacticLines registry |>.map (fun line => s!"replay-seed-tactic: {line}")
   dedupStrings <|
     [ s!"Source ACL2 book: {sourcePath}"
     , s!"ACL2 loaded book: {artifact.resolved_book}"
@@ -473,6 +475,7 @@ private def dynamicNotes
       runeProfile.noteLines ++
       replayState.noteLines ++
       resolvedUses ++
+      replaySeeds ++
       (artifact.actions.map actionNote) ++
       (artifact.actions.foldr
         (fun action acc =>
@@ -880,10 +883,13 @@ private def dynamicResolvedImportedUsesSurfaceInSnapshot : Bool :=
     }
   let snap := snapshotOfDynamicHints "acl2_samples/demo.lisp" "demo" artifact registry
   snap.goal.contains "resolved imported uses: 1" &&
-    snap.nextMoves.any (·.contains "resolved imported Lean theorems") &&
+    snap.nextMoves.any (fun move =>
+      move.toLower.contains "acl2_use \"nbr-calls-flog2-upper-bound\"") &&
     snap.notes.any (fun note =>
       let lower := note.toLower
-      lower.contains "resolved-imported-use: hint-event @ goal: nbr-calls-flog2-upper-bound -> acl2.imported.log2replay.nbr_calls_flog2_upper_bound")
+      lower.contains "resolved-imported-use: hint-event @ goal: nbr-calls-flog2-upper-bound -> acl2.imported.log2replay.nbr_calls_flog2_upper_bound") &&
+    snap.notes.any (fun note =>
+      note.toLower.contains "replay-seed-tactic: hint-event @ goal: acl2_use \"nbr-calls-flog2-upper-bound\"")
 
 #guard dynamicResolvedImportedUsesSurfaceInSnapshot
 

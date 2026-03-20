@@ -1,4 +1,5 @@
 import ACL2Lean.Logic
+import ACL2Lean.ImportedRegistry
 import Lean
 
 namespace ACL2
@@ -47,6 +48,32 @@ macro "acl2_simp" : tactic =>
 
 macro "acl2_grind" : tactic =>
   `(tactic| (acl2_simp; try grind))
+
+/--
+`acl2_use "acl2-theorem-name"` resolves the ACL2 theorem name through the
+imported-theorem registry and tries the matching Lean theorem(s) with `exact`
+and `apply`.
+-/
+elab "acl2_use " theoremName:str : tactic => do
+  let acl2Name := theoremName.getString
+  let registry := ImportedRegistry.snapshot (← getEnv)
+  let candidates := ImportedRegistry.resolve registry acl2Name
+  if candidates.isEmpty then
+    throwError m!"No imported Lean theorem is registered for ACL2 theorem {acl2Name}"
+  for declName in candidates do
+    let ident := mkIdent declName
+    let saved ← saveState
+    try
+      evalTactic (← `(tactic| exact $ident))
+      return
+    catch _ =>
+      saved.restore
+    try
+      evalTactic (← `(tactic| apply $ident))
+      return
+    catch _ =>
+      saved.restore
+  throwError m!"Imported Lean theorems for ACL2 theorem {acl2Name} were found ({String.intercalate ", " (candidates.map toString)}), but none matched the current goal."
 
 /--
 `acl2_induct [f [args...]]` applies the induction principle for the function `f`.
