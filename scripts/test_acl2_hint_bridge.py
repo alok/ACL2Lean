@@ -450,6 +450,75 @@ class HintBridgeParsingTests(unittest.TestCase):
             )
         )
 
+    def test_transcript_echoed_hint_events_are_recovered_from_defthm_form(self) -> None:
+        transcript = dedent(
+            """
+            MODAPP !>>>
+            (DEFTHM EV$-DEF-FACT
+                     (IMPLIES (TAMEP X)
+                              (EQUAL (EV$ X A)
+                                     (APPLY$ (CAR X) (EV$-LIST (CDR X) A))))
+                     :HINTS (("Goal" :EXPAND ((EV$ X A)))))
+
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM EV$-DEF-FACT ...)
+            Rules: NIL
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             EV$-DEF-FACT
+            MODAPP !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "ev$-def-fact")
+        self.assertEqual(artifact["hint_events"], ["(:EXPAND ((EV$ X A)))"])
+        self.assertTrue(
+            any(
+                action["kind"] == "expand"
+                and action["summary"] == "expand ((EV$ X A))"
+                and action["targets"] == ["((EV$ X A))"]
+                for action in artifact["actions"]
+            )
+        )
+
+    def test_transcript_echoed_hint_events_recover_nested_local_defthm_hints(self) -> None:
+        transcript = dedent(
+            """
+            MODAPP !>>>
+            (LOCAL
+             (DEFTHM APPLY$-BADGEP-HONS-GET-LEMMA
+               (IMPLIES (AND (BADGE-TABLE-OKP ALIST)
+                             (HONS-GET FN ALIST))
+                        (APPLY$-BADGEP (CDR (HONS-GET FN ALIST))))
+               :HINTS (("Goal" :IN-THEORY (ENABLE HONS-ASSOC-EQUAL)))))
+
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM APPLY$-BADGEP-HONS-GET-LEMMA ...)
+            Rules: NIL
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             APPLY$-BADGEP-HONS-GET-LEMMA
+            MODAPP !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "apply$-badgep-hons-get-lemma")
+        self.assertEqual(artifact["hint_events"], ["(:IN-THEORY (ENABLE HONS-ASSOC-EQUAL))"])
+        self.assertTrue(
+            any(
+                action["kind"] == "in-theory"
+                and action["summary"] == "adjust theory (ENABLE HONS-ASSOC-EQUAL)"
+                and action["targets"] == ["(ENABLE HONS-ASSOC-EQUAL)"]
+                for action in artifact["actions"]
+            )
+        )
+
     def test_theorem_section_stays_local_with_multiple_summaries_in_one_prompt(self) -> None:
         transcript = dedent(
             """
@@ -560,6 +629,9 @@ class HintBridgeParsingTests(unittest.TestCase):
             apply_sample = sample_dir / "apply-model-apply-prim.lisp"
             apply_sample.write_text("; excerpted sample\n", encoding="utf-8")
 
+            apply_general_sample = sample_dir / "apply-model-apply.lisp"
+            apply_general_sample.write_text("; excerpted sample\n", encoding="utf-8")
+
             system_root = tmp / "acl2-books"
             die_hard_book = system_root / "projects" / "die-hard-bottle-game" / "work.lisp"
             die_hard_book.parent.mkdir(parents=True)
@@ -569,8 +641,12 @@ class HintBridgeParsingTests(unittest.TestCase):
             apply_dir.mkdir(parents=True)
             portcullis = apply_dir / "portcullis.acl2"
             portcullis.write_text("; portcullis\n", encoding="utf-8")
+            constraints = apply_dir / "apply-constraints.lisp"
+            constraints.write_text("; apply constraints\n", encoding="utf-8")
             apply_book = apply_dir / "apply-prim.lisp"
             apply_book.write_text("; canonical apply-prim book\n", encoding="utf-8")
+            general_apply_book = apply_dir / "apply.lisp"
+            general_apply_book.write_text("; canonical apply book\n", encoding="utf-8")
 
             die_hard_plans = bridge.resolve_load_plans(str(die_hard_sample), system_root=system_root)
             self.assertEqual(die_hard_plans[0].book, die_hard_sample.resolve())
@@ -584,6 +660,22 @@ class HintBridgeParsingTests(unittest.TestCase):
                 )
             )
             self.assertTrue(any(plan.book == apply_book for plan in apply_plans))
+
+            apply_general_plans = bridge.resolve_load_plans(str(apply_general_sample), system_root=system_root)
+            self.assertTrue(
+                any(
+                    plan.book == apply_general_sample.resolve()
+                    and plan.preludes == (portcullis, constraints)
+                    for plan in apply_general_plans
+                )
+            )
+            self.assertTrue(
+                any(
+                    plan.book == general_apply_book
+                    and plan.preludes == (portcullis, constraints)
+                    for plan in apply_general_plans
+                )
+            )
 
 
 if __name__ == "__main__":

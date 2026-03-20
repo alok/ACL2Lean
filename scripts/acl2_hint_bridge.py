@@ -58,6 +58,18 @@ def inline_text(text: str) -> str:
     return " ".join(text.split())
 
 
+def dedup_strings(items: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        key = inline_text(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
 def normalize_transcript_lines(lines: list[str]) -> list[str]:
     normalized: list[str] = []
     for raw_line in lines:
@@ -232,19 +244,20 @@ def fallback_plans(requested_book: str, requested_path: Path, system_root: Path 
 
     if requested_posix.endswith("acl2_samples/apply-model-apply.lisp"):
         primary_portcullis = system_root / "projects" / "apply-model" / "portcullis.acl2"
+        primary_constraints = system_root / "projects" / "apply-model" / "apply-constraints.lisp"
         maybe_add_plan(
             plans,
             requested_book,
             requested_path,
-            preludes=(primary_portcullis,),
-            note="repo sample loaded with upstream MODAPP portcullis",
+            preludes=(primary_portcullis, primary_constraints),
+            note="repo sample loaded with upstream MODAPP portcullis and apply-constraints prelude",
         )
         maybe_add_plan(
             plans,
             requested_book,
             system_root / "projects" / "apply-model" / "apply.lisp",
-            preludes=(primary_portcullis,),
-            note="canonical upstream apply-model book with MODAPP portcullis",
+            preludes=(primary_portcullis, primary_constraints),
+            note="canonical upstream apply-model book with MODAPP portcullis and apply-constraints prelude",
         )
 
     return plans
@@ -403,6 +416,104 @@ def collect_induction_blocks(lines: list[str]) -> list[str]:
             i = j
         i += 1
     return blocks
+
+
+def balanced_paren_delta(text: str) -> int:
+    depth = 0
+    in_string = False
+    escape = False
+    for char in text:
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+            continue
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+    return depth
+
+
+def collect_transcript_form(lines: list[str]) -> str | None:
+    collected: list[str] = []
+    depth = 0
+    started = False
+    for raw_line in lines:
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if not started:
+            if not stripped or PROMPT_RE.match(stripped):
+                continue
+            if "(" not in stripped:
+                return None
+            started = True
+        collected.append(line)
+        depth += balanced_paren_delta(line)
+        if started and depth <= 0:
+            form = "\n".join(collected).strip()
+            return form or None
+    return None
+
+
+def find_named_defthm_form(form_text: str, theorem_name: str) -> str | None:
+    entries = split_top_level_entries(form_text)
+    if len(entries) >= 2 and entries[0].lower() == "defthm" and normalize_name(entries[1]) == normalize_name(theorem_name):
+        return form_text.strip()
+
+    for entry in entries:
+        if not entry.startswith("("):
+            continue
+        nested = find_named_defthm_form(entry, theorem_name)
+        if nested is not None:
+            return nested
+    return None
+
+
+def defthm_option_value(form_text: str, theorem_name: str, option_name: str) -> str | None:
+    defthm_form = find_named_defthm_form(form_text, theorem_name)
+    if defthm_form is None:
+        return None
+
+    entries = split_top_level_entries(defthm_form)
+    for idx in range(3, len(entries) - 1):
+        if entries[idx].lower() == option_name.lower():
+            return entries[idx + 1]
+    return None
+
+
+def transcript_hint_events(lines: list[str], theorem_name: str) -> list[str]:
+    form_text = collect_transcript_form(lines)
+    if form_text is None:
+        return []
+
+    hints_value = defthm_option_value(form_text, theorem_name, ":hints")
+    if hints_value is None:
+        return []
+
+    events: list[str] = []
+    for goal_hint in split_top_level_entries(hints_value):
+        entries = split_top_level_entries(goal_hint)
+        if not entries:
+            continue
+        start_idx = 0 if entries[0].startswith(":") else 1
+        idx = start_idx
+        while idx + 1 < len(entries):
+            option = entries[idx]
+            if not option.startswith(":"):
+                idx += 1
+                continue
+            payload = entries[idx + 1]
+            events.append(f"({option.upper()} {payload})")
+            idx += 2
+    return dedup_strings(events)
 
 
 def parse_hint_event_action(event: str) -> dict[str, object]:
@@ -804,6 +915,7 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
     idx, theorem_name = all_matches[target_match_idx]
     excerpt = theorem_excerpt(lines, all_matches, target_match_idx)
     summary = parse_summary(excerpt, theorem_name)
+    hint_events = dedup_strings(summary["hint_events"] + transcript_hint_events(excerpt, theorem_name))
     observations = collect_prefixed_blocks(excerpt, "ACL2 Observation")
     warnings = collect_prefixed_blocks(excerpt, "ACL2 Warning")
     inductions = collect_induction_blocks(excerpt)
@@ -815,13 +927,13 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
         "theorem_name": theorem_name,
         "summary_form": summary["summary_form"] or lines[idx].strip(),
         "summary_rules": summary["summary_rules"],
-        "hint_events": summary["hint_events"],
+        "hint_events": hint_events,
         "splitter_rules": summary["splitter_rules"],
         "warning_kinds": summary["warning_kinds"],
         "summary_time": summary["summary_time"],
         "prover_steps": summary["prover_steps"],
         "actions": collect_actions(
-            summary["hint_events"],
+            hint_events,
             summary["splitter_rules"],
             warnings,
             inductions,
