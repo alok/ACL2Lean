@@ -1564,3 +1564,41 @@ Next best ideas:
 1. import and register a small theorem cluster from an instance-heavy book like `2009-tri-sq` or `apply-model-apply`, so one of the newly recovered real `(:INSTANCE ...)` oracle steps can resolve all the way to an executable replay seed
 2. refine theorem-global `hint-event` `:USE` summaries with source instances when there is a unique source match, not just the checkpoint-local warning-derived `use` actions
 3. execute the next dynamic action families against Lean goals, especially theory-disable guidance and simple split/induction steps that already have normalized payloads
+
+## 2026-03-20 Iteration 40
+
+Completed this iteration:
+
+- added `ACL2Lean/Imported/TriSqReplay.lean`, a new proof-friendly imported theorem module for the `2009-tri-sq` support theorem `pair-pow-2n-2n+1`
+- defined a `pair_pow` mirror around Pell-pair multiplication/powering so Lean can reason about the `tri-sq` doubling/odd-step identities without depending on the rough translated `let*` theorem shape
+- reconstructed and registered ACL2 theorem name `pair-pow-2n-2n+1` through `acl2_imported`, then added two smoke theorems that validate `acl2_use_instance` on the real `(/ n 2)` and `(/ (+ -1 n) 2)` payload shapes emitted by ACL2 for `pair-pow-log-is-correct`
+- wired the new module into `ACL2Lean.lean`, which updates the compiled imported-theorem snapshot consumed by the CLI/proof-mode hint path
+- tracked the slice in Linear as `ALOK-580`
+
+Verification:
+
+- research branch commit `5d3d996`: `lake build acl2lean`
+- research branch commit `5d3d996`: `lake build`
+- research branch commit `5d3d996`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `5d3d996`: `uv run python Verify.py`
+- research branch commit `5d3d996`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-tri-sq.lisp pair-pow-log-is-correct | rg -n 'resolved-imported-uses|ACL2\.Imported\.TriSqReplay\.pair_pow_2n_2n_plus_1|replay-seed-tactics|acl2_use_instance "pair-pow-2n-2n\+1"'`
+- research branch commit `5d3d996`: `printf 'import ACL2Lean.Imported.TriSqReplay\n#print axioms ACL2.Imported.TriSqReplay.pair_pow_2n_2n_plus_1\n' | lake env lean /dev/stdin`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- this is the first `2009-tri-sq` imported theorem slice that closes the loop from real ACL2 `(:INSTANCE ...)` oracle output to a checked Lean theorem registration and executable `acl2_use_instance` replay seeds
+- the live `acl2lean hints` output for `pair-pow-log-is-correct` now resolves the theorem-local `pair-pow-2n-2n+1` name to `ACL2.Imported.TriSqReplay.pair_pow_2n_2n_plus_1` and emits both real instance seeds:
+  - `acl2_use_instance "pair-pow-2n-2n+1" with "((n (/ (+ -1 n) 2)))"`
+  - `acl2_use_instance "pair-pow-2n-2n+1" with "((n (/ n 2)))"`
+- I kept the imported theorem in a proof-friendly proposition form rather than the raw translated `Logic.toBool`/`let*` shape so the bridge has an immediately reusable executor target instead of another theorem that only matches the current rough translator output
+
+Next best ideas:
+
+1. import the next `tri-sq` or `apply-model` support theorem needed to turn one of the emitted `acl2_use_instance` seeds into a larger checked replay step rather than a theorem-local endpoint
+2. teach the replay path to consume theory-disable guidance around `pair-pow-2n-2n+1` so the `tri-sq` warning bundle becomes partially executable beyond just the `:USE` step
+3. decide whether the imported-instance replay stack from `Log2Replay` plus `TriSqReplay` is now coherent enough to promote the stable registry/replay-seed subset to `main`
