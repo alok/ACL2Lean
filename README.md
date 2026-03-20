@@ -9,7 +9,7 @@ This project provides a bridge between ACL2 and Lean 4, allowing for parsing, ev
 - **Automated Translator**: Translates ACL2 `defun` and `defthm` into Lean `def` and `theorem` statements.
 - **Proving Support**: Includes `acl2_simp` and `acl2_grind` tactics.
 - **Internal SMT Solver**: Leverages Lean's `grind` tactic with linear integer arithmetic (`cutsat`) support for automated proofs of arithmetic properties.
-- **Checked Imported Theorem**: `ACL2.Imported.Log2Replay.nbr_calls_clog2_eq_1_plus_clog2` reconstructs an ACL2 theorem from `acl2_samples/2009-log2.lisp` as a native Lean theorem.
+- **Checked Imported Theorem Bundle**: `ACL2.Imported.Log2Replay` now reconstructs a small ACL2 theorem cluster from `acl2_samples/2009-log2.lisp`, including `clog2_is_correct`, `clog2_is_correct_upper`, `clog2_is_correct_lower`, `natp_clog2`, `posp_clog2`, and `nbr_calls_clog2_eq_1_plus_clog2`.
 
 ## Getting Started
 
@@ -20,13 +20,18 @@ This project provides a bridge between ACL2 and Lean 4, allowing for parsing, ev
 
 ## Imported Theorem Replay
 
-`ACL2Lean/Imported/Log2Replay.lean` now provides the first checked reconstruction of an imported ACL2 theorem in this repo:
+`ACL2Lean/Imported/Log2Replay.lean` now provides the first checked reconstruction of an imported ACL2 theorem cluster in this repo:
 
-- source theorem: `nbr-calls-clog2=1+clog2`
 - source book: `acl2_samples/2009-log2.lisp`
-- Lean theorem: `ACL2.Imported.Log2Replay.nbr_calls_clog2_eq_1_plus_clog2`
+- Lean theorems:
+  - `ACL2.Imported.Log2Replay.natp_clog2`
+  - `ACL2.Imported.Log2Replay.posp_clog2`
+  - `ACL2.Imported.Log2Replay.clog2_is_correct_lower`
+  - `ACL2.Imported.Log2Replay.clog2_is_correct_upper`
+  - `ACL2.Imported.Log2Replay.clog2_is_correct`
+  - `ACL2.Imported.Log2Replay.nbr_calls_clog2_eq_1_plus_clog2`
 
-The current replay strategy lowers the positive-integer execution path of the imported ACL2 functions into a small `Nat` semantic mirror, proves the theorem there, and lifts it back to the ACL2 `SExpr` encoding. This is not yet a generic replay engine, but it is a real kernel-checked imported theorem rather than another metadata-only placeholder.
+The current replay strategy lowers the positive-integer execution path of the imported ACL2 functions into a small `Nat` semantic mirror, proves the central `clog2` bounds there, and lifts those facts back to the ACL2 `SExpr` encoding. This is not yet a generic replay engine, but it is a real kernel-checked imported theorem bundle rather than another metadata-only placeholder.
 
 ## Automated Proving with `grind`
 
