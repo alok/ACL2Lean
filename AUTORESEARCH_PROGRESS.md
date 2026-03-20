@@ -755,3 +755,39 @@ Next best ideas:
 1. start executing the newly goal-targeted transcript actions against Lean replay state, beginning with `use`, `in-theory`, `expand`, and `do-not-induct`
 2. look for a real ACL2 sample that echoes multi-goal `DEFTHM` hints at runtime so transcript-goal preservation is exercised on more than the synthetic regression path
 3. recover additional theorem-level proof-search directives such as `:otf-flg` only when they can be surfaced cleanly as replay-relevant Lean metadata instead of adding more flat transcript text
+
+## 2026-03-19 Iteration 21
+
+Completed this iteration:
+
+- taught `scripts/acl2_hint_bridge.py` to split multi-item ACL2 `:USE` payloads into one replay action per cited theorem or `(:INSTANCE ...)` form instead of collapsing the whole payload into one giant `use ...` action
+- applied that splitting to both summary `Hint-events:` parsing and goal-targeted transcript-echoed `DEFTHM` hints, so theorem-local `Goal` / `Subgoal ...` targets survive even when ACL2 emits a list of `:USE` items
+- added focused bridge regressions for summary `:USE` lists and transcript goal-targeted `:USE` bundles, and updated `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md` to document the finer-grained replay surface
+- tracked this slice in Linear as `ALOK-560`
+
+Verification:
+
+- research branch commit `6b87cde`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `6b87cde`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/die-hard-work.lisp --theorem nonnegative-integer-quotient-gcd-relatively-prime | sed -n '1,220p'`
+- research branch commit `6b87cde`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp nonnegative-integer-quotient-gcd-relatively-prime | sed -n '1,220p'`
+- research branch commit `6b87cde`: `lake build`
+- research branch commit `6b87cde`: `uv run python Verify.py`
+- pushed research branch commit `6b87cde` to `origin/autoresearch/mar19-acl2lean`
+- after the push, `gh run watch 23329725832 --exit-status` succeeded for GitHub Actions run `23329725832`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- `NONNEGATIVE-INTEGER-QUOTIENT-GCD-RELATIVELY-PRIME` is now a concrete dynamic-oracle acceptance test for multi-item `:USE` replay guidance: its theorem-local transcript `:USE` bundle surfaces as five separate `use ... in Goal` actions instead of one flattened blob
+- this is a real bridge advance because the next replay layer can schedule each ACL2 use item independently instead of reparsing a giant payload string before it can even start matching Lean lemmas
+- I did not promote this slice to `main` yet because it still improves the research-branch-only dynamic hint/action workflow rather than a surface that already exists on `main`
+
+Next best ideas:
+
+1. start executing checkpoint-local `use` actions against Lean replay state now that multi-item bundles no longer need extra normalization before scheduling
+2. group dynamic actions by ACL2 goal/subgoal inside `ACL2Lean.ProofMode` so the panel follows theorem-local replay targeting instead of presenting one flat action list in notes
+3. only then extend transcript recovery to additional theorem-level directives such as `:otf-flg`, and only if real ACL2 transcripts expose them consistently enough to justify a new replay surface
