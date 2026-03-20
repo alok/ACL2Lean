@@ -192,3 +192,36 @@ Next best ideas:
 1. interpret `:bash`, `:in-theory`, and `:repeat :prove` against real Lean goals so the imported panel can report checked replay progress
 2. parse richer nested theory combinators so the rune pane can decompose `union-theories` / `set-difference-theories` / `current-theory` instead of dumping raw expressions
 3. connect the imported snapshot path to live tactic-state updates so the panel can mix imported ACL2 provenance with actual Lean checkpoint state
+
+## 2026-03-19 Iteration 6
+
+Completed this iteration:
+
+- extended `TheoryExpr` so imported ACL2 theory metadata now preserves nested theory combinators and theory-set constructors, including quoted literal rune sets, `union-theories`, `set-difference-theories`, `current-theory`, `function-theory`, and `cons`
+- added structured rendering helpers for theory trees and hint lines, then threaded them through `ProofInstruction` rendering so imported `:bash` / `:in-theory` steps are inspectable as trees instead of raw ACL2 s-expressions
+- updated the `acl2lean metadata` CLI, translated Lean metadata comments, and `ACL2Lean.ProofMode` rune list to surface the decomposed theory context from real books such as `acl2_samples/apply-model-apply-prim.lisp`
+- added a parser guard for `set-difference-theories` with `current-theory` / `function-theory` and documented the richer theory-expression coverage in `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md`
+
+Verification:
+
+- research branch commit `c9efe09`: `lake build ACL2Lean.Parser ACL2Lean.ProofMode Main`
+- research branch commit `c9efe09`: `lake build`
+- research branch commit `c9efe09`: `uv run python Verify.py`
+- research branch commit `c9efe09`: `./.lake/build/bin/acl2lean metadata acl2_samples/apply-model-apply-prim.lisp 'apply$-prim-meta-fn-correct' | sed -n '1,120p'`
+- research branch commit `c9efe09`: `./.lake/build/bin/acl2lean translate acl2_samples/apply-model-apply-prim.lisp | sed -n '48,115p'`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- this is a real replay-facing improvement because the imported theorem path now exposes nested ACL2 theory structure in a form Lean-side tooling can inspect, rather than hiding it behind raw strings
+- I did not promote this slice to `main` yet because the proof-mode consumer for the new rendering still depends on the earlier imported-panel batch that remains only on the research branch; promotion should likely bundle those stable UI commits together
+
+Next best ideas:
+
+1. interpret the structured `TheoryExpr` tree into a Lean-side active rune / simp-set model so imported `:in-theory` can affect checked replay instead of only display
+2. parse `:cases` and other still-unstructured hint options so more ACL2 proof metadata becomes replay-usable
+3. replace the imported panel's planned checkpoints with checked replay state by executing `:bash`, `:in-theory`, and `:repeat :prove` against Lean goals
