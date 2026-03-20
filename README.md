@@ -26,6 +26,7 @@ The repo now carries two early UI integration paths for co-designing an ACL-flav
 - **`lean-tui` + `LeanPrism`**: a terminal infoview that follows the active proof/function from your editor.
 - **ProofWidgets infoview panel**: `ACL2Lean/ProofMode.lean` and `ACL2Lean/ProofModeDemo.lean` provide the first ACL-specific panel layout for checkpoints, rune/fact lists, and next moves.
 - **Imported theorem panel**: `#acl_imported_panel "acl2_samples/apply-model-apply-prim.lisp" "apply$-prim-meta-fn-correct"` now renders a proof-mode snapshot from real imported ACL2 metadata instead of only hand-written demo props.
+- **Structured theory context**: imported `in-theory` metadata now decomposes nested ACL2 combinators like `union-theories` and `set-difference-theories` in the CLI, translated Lean comments, and proof-mode rune panel.
 
 The intended split is:
 

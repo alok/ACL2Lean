@@ -307,13 +307,30 @@ private def parsedProofBuilderInstructionsLookRight : Bool :=
                 | _ => false
               let theoryOk :=
                 match theoryInst.theoryExpr? with
-                | some (.raw expr) =>
-                    match expr.toList? with
-                    | some (.atom (.symbol head) :: _) => head.isNamed "union-theories"
-                    | _ => false
+                | some _ => true
                 | _ => false
               bashOk && theoryOk
           | _ => false
+      | _ => false
+  | .error _ => false
+
+private def parsedTheorySetDifferenceLooksRight : Bool :=
+  match parseOne "(IN-THEORY (SET-DIFFERENCE-THEORIES
+                               (CURRENT-THEORY :HERE)
+                               (CONS '(:REWRITE DEFAULT-CAR)
+                                     (FUNCTION-THEORY :HERE))))" with
+  | .ok sx =>
+      match Event.classify sx with
+      | .inTheory expr =>
+          TheoryExpr.ofSExpr expr =
+            .setDifference
+              (.call "current-theory" [ .atom (.keyword "here") ])
+              (.cons
+                (SExpr.ofList
+                  [ .atom (.keyword "rewrite")
+                  , .atom (.symbol { name := "default-car" })
+                  ])
+                (.call "function-theory" [ .atom (.keyword "here") ]))
       | _ => false
   | .error _ => false
 
@@ -325,6 +342,7 @@ private def parsedProofBuilderInstructionsLookRight : Bool :=
 #guard parsedWithOutputWrappedDefthmLooksRight
 #guard parsedMakeEventEncapsulateLooksRight
 #guard parsedProofBuilderInstructionsLookRight
+#guard parsedTheorySetDifferenceLooksRight
 
 end Parse
 

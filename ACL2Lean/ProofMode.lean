@@ -66,12 +66,7 @@ private def hintCheckpoints : Nat → List GoalHint → List Checkpoint
         hintCheckpoints (idx + 1) rest
 
 private def theoryItems : TheoryExpr → List String
-  | .enable items => items.map (fun item => s!"enable {item}")
-  | .disable items => items.map (fun item => s!"disable {item}")
-  | .e_d enabled disabled =>
-      (enabled.map (fun item => s!"enable {item}")) ++
-        (disabled.map (fun item => s!"disable {item}"))
-  | .raw expr => [s!"theory {TheoryExpr.summary (.raw expr)}"]
+  | expr => expr.bulletItems
 
 private def hintRunes (hint : GoalHint) : List String :=
   let useLines :=

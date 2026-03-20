@@ -121,7 +121,10 @@ private def renderMetadataComment (info : TheoremInfo) : String :=
     match info.ruleClasses.map RuleClass.summary with
     | [] => []
     | ruleClasses => [s!"rule-classes: {String.intercalate ", " ruleClasses}"]
-  let hintLines := info.hintGoals.map GoalHint.summary
+  let hintLines :=
+    match info.hintGoals with
+    | [] => []
+    | hints => ["hints:"] ++ (hints.map (GoalHint.renderLines 2)).foldr List.append []
   let instructionLines :=
     match info.instructions with
     | [] => []

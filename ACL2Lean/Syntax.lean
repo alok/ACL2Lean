@@ -115,6 +115,12 @@ inductive TheoryExpr
   | enable (items : List SExpr)
   | disable (items : List SExpr)
   | e_d (enabled : List SExpr) (disabled : List SExpr)
+  | literal (items : List SExpr)
+  | union (lhs : TheoryExpr) (rhs : TheoryExpr)
+  | setDifference (lhs : TheoryExpr) (rhs : TheoryExpr)
+  | cons (item : SExpr) (rest : TheoryExpr)
+  | call (name : String) (args : List SExpr := [])
+  | ref (expr : SExpr)
   | raw (expr : SExpr)
   deriving DecidableEq, Inhabited, Repr
 
@@ -167,29 +173,133 @@ private def unpackItems (expr : SExpr) : List SExpr :=
   | some items => items
   | none => [expr]
 
-def ofSExpr (expr : SExpr) : TheoryExpr :=
+private def trimLeftSpaces (line : String) : String :=
+  String.ofList <| line.toList.dropWhile (· = ' ')
+
+@[inline] private def renderIndent (indent : Nat) : String :=
+  String.ofList (List.replicate indent ' ')
+
+private def quotedItems (expr : SExpr) : List SExpr :=
   match expr.toList? with
-  | some (SExpr.atom (.symbol head) :: rest) =>
-      if head.isNamed "enable" then
-        .enable rest
-      else if head.isNamed "disable" then
-        .disable rest
-      else if head.isNamed "e/d" then
-        match rest with
-        | [enabled, disabled] => .e_d (unpackItems enabled) (unpackItems disabled)
-        | _ => .raw expr
-      else
-        .raw expr
-  | _ => .raw expr
+  | some (.atom (.keyword _) :: _) => [expr]
+  | some items => items
+  | none => [expr]
+
+private def unquote? : SExpr → Option SExpr
+  | .cons (.atom (.symbol sym)) (.cons inner .nil) =>
+      if sym.isNamed "quote" then some inner else none
+  | _ => none
+
+private def unquoteItem (expr : SExpr) : SExpr :=
+  match unquote? expr with
+  | some inner => inner
+  | none => expr
+
+partial def ofSExpr (expr : SExpr) : TheoryExpr :=
+  match unquote? expr with
+  | some inner => .literal (quotedItems inner)
+  | none =>
+      match expr.toList? with
+      | some (SExpr.atom (.symbol head) :: rest) =>
+          if head.isNamed "enable" then
+            .enable rest
+          else if head.isNamed "disable" then
+            .disable rest
+          else if head.isNamed "e/d" then
+            match rest with
+            | [enabled, disabled] => .e_d (unpackItems enabled) (unpackItems disabled)
+            | _ => .raw expr
+          else if head.isNamed "union-theories" then
+            match rest with
+            | [lhs, rhs] => .union (ofSExpr lhs) (ofSExpr rhs)
+            | _ => .call head.normalizedName rest
+          else if head.isNamed "set-difference-theories" then
+            match rest with
+            | [lhs, rhs] => .setDifference (ofSExpr lhs) (ofSExpr rhs)
+            | _ => .call head.normalizedName rest
+          else if head.isNamed "cons" then
+            match rest with
+            | [item, tail] => .cons (unquoteItem item) (ofSExpr tail)
+            | _ => .call head.normalizedName rest
+          else
+            .call head.normalizedName rest
+      | _ =>
+          match expr with
+          | .atom _ => .ref expr
+          | _ => .raw expr
 
 private def renderItems (items : List SExpr) : String :=
   String.intercalate ", " (items.map toString)
+
+partial def renderLines (indent : Nat := 0) : TheoryExpr → List String
+  | .enable items =>
+      s!"{renderIndent indent}enable" ::
+        items.map (fun item => s!"{renderIndent (indent + 2)}{item}")
+  | .disable items =>
+      s!"{renderIndent indent}disable" ::
+        items.map (fun item => s!"{renderIndent (indent + 2)}{item}")
+  | .e_d enabled disabled =>
+      [ s!"{renderIndent indent}e/d"
+      , s!"{renderIndent (indent + 2)}enable"
+      ] ++
+        enabled.map (fun item => s!"{renderIndent (indent + 4)}{item}") ++
+        [ s!"{renderIndent (indent + 2)}disable" ] ++
+        disabled.map (fun item => s!"{renderIndent (indent + 4)}{item}")
+  | .literal items =>
+      s!"{renderIndent indent}literal-set" ::
+        items.map (fun item => s!"{renderIndent (indent + 2)}{item}")
+  | .union lhs rhs =>
+      [s!"{renderIndent indent}union-theories"] ++
+        renderLines (indent + 2) lhs ++
+        renderLines (indent + 2) rhs
+  | .setDifference lhs rhs =>
+      [s!"{renderIndent indent}set-difference-theories"] ++
+        renderLines (indent + 2) lhs ++
+        renderLines (indent + 2) rhs
+  | .cons item rest =>
+      [ s!"{renderIndent indent}cons"
+      , s!"{renderIndent (indent + 2)}{item}"
+      ] ++ renderLines (indent + 2) rest
+  | .call name [] => [s!"{renderIndent indent}{name}"]
+  | .call name args => [s!"{renderIndent indent}{name}: {renderItems args}"]
+  | .ref expr => [s!"{renderIndent indent}{expr}"]
+  | .raw expr => [s!"{renderIndent indent}{expr}"]
+
+def labeledLines (label : String) (expr : TheoryExpr) (indent : Nat := 0) : List String :=
+  match renderLines (indent + 2) expr with
+  | [] => [s!"{renderIndent indent}{label}"]
+  | first :: rest =>
+      s!"{renderIndent indent}{label}: {trimLeftSpaces first}" :: rest
+
+partial def bulletItems : TheoryExpr → List String
+  | .enable items => items.map (fun item => s!"enable {item}")
+  | .disable items => items.map (fun item => s!"disable {item}")
+  | .e_d enabled disabled =>
+      (enabled.map (fun item => s!"enable {item}")) ++
+        (disabled.map (fun item => s!"disable {item}"))
+  | .literal items => items.map (fun item => s!"literal {item}")
+  | .union lhs rhs => ["union-theories"] ++ bulletItems lhs ++ bulletItems rhs
+  | .setDifference lhs rhs =>
+      ["set-difference-theories"] ++ bulletItems lhs ++ bulletItems rhs
+  | .cons item rest => [s!"cons {item}"] ++ bulletItems rest
+  | .call name [] => [name]
+  | .call name args => [s!"{name} {renderItems args}"]
+  | .ref expr => [toString expr]
+  | .raw expr => [toString expr]
 
 def summary : TheoryExpr → String
   | .enable items => s!"enable [{renderItems items}]"
   | .disable items => s!"disable [{renderItems items}]"
   | .e_d enabled disabled =>
       s!"e/d enable [{renderItems enabled}] disable [{renderItems disabled}]"
+  | .literal items => s!"literal [{renderItems items}]"
+  | .union lhs rhs => s!"union-theories ({summary lhs}) ({summary rhs})"
+  | .setDifference lhs rhs =>
+      s!"set-difference-theories ({summary lhs}) ({summary rhs})"
+  | .cons item rest => s!"cons {item} onto ({summary rest})"
+  | .call name [] => name
+  | .call name args => s!"{name} [{renderItems args}]"
+  | .ref expr => toString expr
   | .raw expr => toString expr
 
 end TheoryExpr
@@ -215,24 +325,31 @@ def findOption? (hint : GoalHint) (key : Keyword) : Option SExpr :=
 def inTheory? (hint : GoalHint) : Option TheoryExpr :=
   hint.findOption? "in-theory" |>.map TheoryExpr.ofSExpr
 
-def summary (hint : GoalHint) : String :=
+@[inline] private def renderIndent (indent : Nat) : String :=
+  String.ofList (List.replicate indent ' ')
+
+private def trimLeftSpaces (line : String) : String :=
+  String.ofList <| line.toList.dropWhile (· = ' ')
+
+def renderLines (indent : Nat := 0) (hint : GoalHint) : List String :=
+  let header := s!"{renderIndent indent}hint {hint.goal}"
   let basics :=
-    [ hint.findOption? "use" |>.map (fun useExpr => s!"use {useExpr}")
-    , hint.inTheory? |>.map (fun theoryExpr => s!"in-theory {theoryExpr.summary}")
-    , hint.findOption? "induct" |>.map (fun inductExpr => s!"induct {inductExpr}")
-    , hint.findOption? "expand" |>.map (fun expandExpr => s!"expand {expandExpr}")
-    , hint.findOption? "do-not-induct" |>.map (fun dniExpr => s!"do-not-induct {dniExpr}")
-    ].filterMap id
+    [ hint.findOption? "use" |>.map (fun useExpr => [s!"{renderIndent (indent + 2)}use {useExpr}"])
+    , hint.inTheory? |>.map (fun theoryExpr => TheoryExpr.labeledLines "in-theory" theoryExpr (indent + 2))
+    , hint.findOption? "induct" |>.map (fun inductExpr => [s!"{renderIndent (indent + 2)}induct {inductExpr}"])
+    , hint.findOption? "expand" |>.map (fun expandExpr => [s!"{renderIndent (indent + 2)}expand {expandExpr}"])
+    , hint.findOption? "do-not-induct"
+        |>.map (fun dniExpr => [s!"{renderIndent (indent + 2)}do-not-induct {dniExpr}"])
+    ].filterMap id |>.foldr List.append []
   let handled := ["use", "in-theory", "induct", "expand", "do-not-induct"]
   let extras :=
     hint.options
       |>.filter (fun option => !handled.contains option.key)
-      |>.map TheoremOption.render
-  let parts := basics ++ extras
-  if parts.isEmpty then
-    s!"hint {hint.goal}"
-  else
-    s!"hint {hint.goal}: {String.intercalate "; " parts}"
+      |>.map (fun option => s!"{renderIndent (indent + 2)}:{option.key} {option.value}")
+  header :: basics ++ extras
+
+def summary (hint : GoalHint) : String :=
+  String.intercalate " | " ((renderLines 0 hint).map trimLeftSpaces)
 
 end GoalHint
 
@@ -306,11 +423,11 @@ partial def renderLines (indent : Nat := 0) : ProofInstruction → List String
         [s!"{renderIndent indent}bash: {renderArgs args}"]
       else
         let header := s!"{renderIndent indent}bash:"
-        let hintLines := hints.map (fun hint => s!"{renderIndent (indent + 2)}{hint.summary}")
+        let hintLines := (hints.map (GoalHint.renderLines (indent + 2))).foldr List.append []
         header :: hintLines
   | inst@(.command "in-theory" args) =>
       match inst.theoryExpr? with
-      | some theoryExpr => [s!"{renderIndent indent}in-theory: {theoryExpr.summary}"]
+      | some theoryExpr => TheoryExpr.labeledLines "in-theory" theoryExpr indent
       | none => [s!"{renderIndent indent}in-theory: {renderArgs args}"]
   | .command name args =>
       if args.isEmpty then

@@ -10,7 +10,7 @@ The immediate design split is:
 - `lean-tui` should own proof navigation, graph structure, and cursor-following.
 - the infoview panel should own ACL-specific metadata that Lean's default UI does not expose well: rune selection, checkpoints, hint provenance, and induction choices.
 
-The importer now preserves structured `defthm` metadata (`:hints`, `:instructions`, `:rule-classes`) plus top-level `in-theory` events, and `#acl_imported_panel "<book>" "<theorem>"` now turns that imported data into a real infoview snapshot. The panel is still showing replay plans rather than checked replay state, but it is no longer limited to a hand-written demo snapshot.
+The importer now preserves structured `defthm` metadata (`:hints`, `:instructions`, `:rule-classes`) plus top-level `in-theory` events, and `#acl_imported_panel "<book>" "<theorem>"` now turns that imported data into a real infoview snapshot. Nested theory combinators such as `union-theories`, `set-difference-theories`, `current-theory`, and `function-theory` are now decomposed into readable structure in the CLI, translated Lean comments, and the proof-mode rune pane instead of surfacing as opaque raw ACL2 text. The panel is still showing replay plans rather than checked replay state, but it is no longer limited to a hand-written demo snapshot.
 
 ## Current setup
 

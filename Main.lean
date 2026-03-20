@@ -14,8 +14,10 @@ private def printTheoremMetadata (name : ACL2.Symbol) (info : ACL2.TheoremInfo) 
   if hints.isEmpty then
     IO.println "  hints: none"
   else
+    IO.println "  hints:"
     for hint in hints do
-      IO.println s!"  {hint.summary}"
+      for line in ACL2.GoalHint.renderLines 4 hint do
+        IO.println line
   let instructions := info.instructions
   if !instructions.isEmpty then
     IO.println "  instructions:"
@@ -34,7 +36,8 @@ private def printTheoryEvents (events : List ACL2.Event) : IO Unit := do
   if !List.isEmpty theoryExprs then
     IO.println "theory-events"
     for theoryExpr in theoryExprs do
-      IO.println s!"  {theoryExpr.summary}"
+      for line in ACL2.TheoryExpr.renderLines 2 theoryExpr do
+        IO.println line
 
 def main (args : List String) : IO Unit := do
   match args with
