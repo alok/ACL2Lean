@@ -15,17 +15,13 @@ private def printTheoremMetadata (name : ACL2.Symbol) (info : ACL2.TheoremInfo) 
     IO.println "  hints: none"
   else
     for hint in hints do
-      IO.println s!"  hint {hint.goal}"
-      if let some useExpr := hint.findOption? "use" then
-        IO.println s!"    use: {useExpr}"
-      if let some theoryExpr := hint.inTheory? then
-        IO.println s!"    in-theory: {theoryExpr.summary}"
-      if let some inductExpr := hint.findOption? "induct" then
-        IO.println s!"    induct: {inductExpr}"
-      if let some expandExpr := hint.findOption? "expand" then
-        IO.println s!"    expand: {expandExpr}"
-      if let some dniExpr := hint.findOption? "do-not-induct" then
-        IO.println s!"    do-not-induct: {dniExpr}"
+      IO.println s!"  {hint.summary}"
+  let instructions := info.instructions
+  if !instructions.isEmpty then
+    IO.println "  instructions:"
+    for instruction in instructions do
+      for line in ACL2.ProofInstruction.renderLines 4 instruction do
+        IO.println line
   let extraKeys := info.extraOptions.map (fun option => s!":{option.key}")
   if !extraKeys.isEmpty then
     IO.println s!"  other-options: {String.intercalate ", " extraKeys}"

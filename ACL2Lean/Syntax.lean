@@ -123,6 +123,13 @@ structure GoalHint where
   options : List TheoremOption := []
   deriving DecidableEq, Inhabited, Repr
 
+inductive ProofInstruction
+  | atom (name : String)
+  | command (name : String) (args : List SExpr := [])
+  | block (name : String) (steps : List ProofInstruction)
+  | raw (expr : SExpr)
+  deriving Inhabited, Repr
+
 structure RuleClass where
   name : String
   options : List TheoremOption := []
@@ -208,7 +215,113 @@ def findOption? (hint : GoalHint) (key : Keyword) : Option SExpr :=
 def inTheory? (hint : GoalHint) : Option TheoryExpr :=
   hint.findOption? "in-theory" |>.map TheoryExpr.ofSExpr
 
+def summary (hint : GoalHint) : String :=
+  let basics :=
+    [ hint.findOption? "use" |>.map (fun useExpr => s!"use {useExpr}")
+    , hint.inTheory? |>.map (fun theoryExpr => s!"in-theory {theoryExpr.summary}")
+    , hint.findOption? "induct" |>.map (fun inductExpr => s!"induct {inductExpr}")
+    , hint.findOption? "expand" |>.map (fun expandExpr => s!"expand {expandExpr}")
+    , hint.findOption? "do-not-induct" |>.map (fun dniExpr => s!"do-not-induct {dniExpr}")
+    ].filterMap id
+  let handled := ["use", "in-theory", "induct", "expand", "do-not-induct"]
+  let extras :=
+    hint.options
+      |>.filter (fun option => !handled.contains option.key)
+      |>.map TheoremOption.render
+  let parts := basics ++ extras
+  if parts.isEmpty then
+    s!"hint {hint.goal}"
+  else
+    s!"hint {hint.goal}: {String.intercalate "; " parts}"
+
 end GoalHint
+
+namespace ProofInstruction
+
+@[inline] private def renderIndent (indent : Nat) : String :=
+  String.ofList (List.replicate indent ' ')
+
+private def instructionName? : SExpr → Option String
+  | .atom (.keyword key) => some key
+  | .atom (.symbol sym) => some sym.normalizedName
+  | _ => none
+
+private def isQuotedName (name : String) : Bool :=
+  name = "quote" || name = "quasiquote" || name = "unquote" || name = "unquote-splicing"
+
+private def allowsNestedSteps (name : String) : Bool :=
+  name = "quiet!" || name = "repeat"
+
+private def looksLikeInstruction : SExpr → Bool
+  | .atom (.keyword _) => true
+  | .atom (.symbol _) => true
+  | expr =>
+      match expr.toList? with
+      | some (head :: _) =>
+          match instructionName? head with
+          | some name => !isQuotedName name
+          | none => false
+      | _ => false
+
+partial def ofSExpr : SExpr → ProofInstruction
+  | .atom (.keyword key) => .atom key
+  | .atom (.symbol sym) => .atom sym.normalizedName
+  | expr =>
+      match expr.toList? with
+      | some (head :: rest) =>
+          match instructionName? head with
+          | some name =>
+              if allowsNestedSteps name && rest.all looksLikeInstruction then
+                .block name (rest.map ofSExpr)
+              else
+                .command name rest
+          | none => .raw expr
+      | _ => .raw expr
+
+private def goalHintsFromExpr (expr : SExpr) : List GoalHint :=
+  match GoalHint.ofSExpr? expr with
+  | some hint => [hint]
+  | none =>
+      match expr.toList? with
+      | some items => items.filterMap GoalHint.ofSExpr?
+      | none => []
+
+def goalHints : ProofInstruction → List GoalHint
+  | .command "bash" args => (args.map goalHintsFromExpr).foldr List.append []
+  | _ => []
+
+def theoryExpr? : ProofInstruction → Option TheoryExpr
+  | .command "in-theory" [expr] => some (TheoryExpr.ofSExpr expr)
+  | _ => none
+
+private def renderArgs (args : List SExpr) : String :=
+  String.intercalate "; " (args.map toString)
+
+partial def renderLines (indent : Nat := 0) : ProofInstruction → List String
+  | .atom name => [s!"{renderIndent indent}{name}"]
+  | .raw expr => [s!"{renderIndent indent}{expr}"]
+  | .command "bash" args =>
+      let hints := goalHints (.command "bash" args)
+      if hints.isEmpty then
+        [s!"{renderIndent indent}bash: {renderArgs args}"]
+      else
+        let header := s!"{renderIndent indent}bash:"
+        let hintLines := hints.map (fun hint => s!"{renderIndent (indent + 2)}{hint.summary}")
+        header :: hintLines
+  | inst@(.command "in-theory" args) =>
+      match inst.theoryExpr? with
+      | some theoryExpr => [s!"{renderIndent indent}in-theory: {theoryExpr.summary}"]
+      | none => [s!"{renderIndent indent}in-theory: {renderArgs args}"]
+  | .command name args =>
+      if args.isEmpty then
+        [s!"{renderIndent indent}{name}"]
+      else
+        [s!"{renderIndent indent}{name}: {renderArgs args}"]
+  | .block name steps =>
+      let header := s!"{renderIndent indent}{name}"
+      header :: (steps.map (renderLines (indent + 2))).foldr List.append []
+
+end ProofInstruction
 
 namespace RuleClass
 
@@ -254,7 +367,16 @@ def ruleClasses (info : TheoremInfo) : List RuleClass :=
   | none => []
 
 def extraOptions (info : TheoremInfo) : List TheoremOption :=
-  info.options.filter (fun option => option.key ≠ "hints" && option.key ≠ "rule-classes")
+  info.options.filter (fun option =>
+    option.key ≠ "hints" && option.key ≠ "rule-classes" && option.key ≠ "instructions")
+
+def instructions (info : TheoremInfo) : List ProofInstruction :=
+  match info.findOption? "instructions" with
+  | some instructionsExpr =>
+      match instructionsExpr.toList? with
+      | some items => items.map ProofInstruction.ofSExpr
+      | none => [ProofInstruction.ofSExpr instructionsExpr]
+  | none => []
 
 end TheoremInfo
 

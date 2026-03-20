@@ -116,37 +116,23 @@ def translateDefun (name : Symbol) (formals : List Symbol) (body : SExpr) : Stri
   let fmls := String.intercalate " " (formals.map fun s => s!"({translateSymbol s} : SExpr)")
   s!"partial def {nameStr} {fmls} : SExpr :=\n  {translateExpr body}"
 
-private def renderHint (hint : GoalHint) : String :=
-  let basics :=
-    [ hint.findOption? "use" |>.map (fun useExpr => s!"use {useExpr}")
-    , hint.inTheory? |>.map (fun theoryExpr => s!"in-theory {theoryExpr.summary}")
-    , hint.findOption? "induct" |>.map (fun inductExpr => s!"induct {inductExpr}")
-    , hint.findOption? "expand" |>.map (fun expandExpr => s!"expand {expandExpr}")
-    , hint.findOption? "do-not-induct" |>.map (fun dniExpr => s!"do-not-induct {dniExpr}")
-    ].filterMap id
-  let handled := ["use", "in-theory", "induct", "expand", "do-not-induct"]
-  let extras :=
-    hint.options
-      |>.filter (fun option => !handled.contains option.key)
-      |>.map TheoremOption.render
-  let parts := basics ++ extras
-  if parts.isEmpty then
-    s!"hint {hint.goal}"
-  else
-    s!"hint {hint.goal}: {String.intercalate "; " parts}"
-
 private def renderMetadataComment (info : TheoremInfo) : String :=
   let ruleClassLines :=
     match info.ruleClasses.map RuleClass.summary with
     | [] => []
     | ruleClasses => [s!"rule-classes: {String.intercalate ", " ruleClasses}"]
-  let hintLines := info.hintGoals.map renderHint
+  let hintLines := info.hintGoals.map GoalHint.summary
+  let instructionLines :=
+    match info.instructions with
+    | [] => []
+    | instructions =>
+        ["instructions:"] ++ (instructions.map (ProofInstruction.renderLines 2)).foldr List.append []
   let extraKeys := info.extraOptions.map (fun option => s!":{option.key}")
   let extraLines :=
     match extraKeys with
     | [] => []
     | keys => [s!"other-options: {String.intercalate ", " keys}"]
-  let lines := ruleClassLines ++ hintLines ++ extraLines
+  let lines := ruleClassLines ++ hintLines ++ instructionLines ++ extraLines
   if lines.isEmpty then
     ""
   else
