@@ -74,8 +74,6 @@ partial def translateLiteral : SExpr → String
   | .atom (.number (.rational n d)) => s!"(SExpr.atom (.number (.rational ({n}) ({d}))))"
   | .atom (.number (.decimal m e)) => s!"(SExpr.atom (.number (.decimal ({m}) ({e}))))"
   | .atom (.string s) => s!"(SExpr.atom (.string \"{s}\"))"
-  | .atom (.bool true) => "(SExpr.atom (.bool true))"
-  | .atom (.bool false) => "(SExpr.atom (.bool false))"
   | .atom (.keyword k) => s!"(SExpr.atom (.keyword \"{k}\"))"
   | .cons a b => s!"(SExpr.cons {translateLiteral a} {translateLiteral b})"
 
@@ -90,7 +88,6 @@ partial def translateCaseClauses (testStr : String) (clauses : SExpr) (nativeIf 
       else
         let keyLit := s!"(SExpr.atom (.symbol \{ name := \"{s.name}\" }))"
         s!"(if Logic.toBool (Logic.equal {testStr} {keyLit}) then {translateExpr val nativeIf} else {translateCaseClauses testStr rest nativeIf})"
-    | .atom (.bool true) => translateExpr val nativeIf
     | _ =>
       s!"(if Logic.toBool (Logic.equal {testStr} {translateExpr key nativeIf}) then {translateExpr val nativeIf} else {translateCaseClauses testStr rest nativeIf})"
   | .nil => "SExpr.nil"
@@ -107,7 +104,6 @@ partial def translateCond (clauses : SExpr) (nativeIf : Bool) : String :=
         s!"(if Logic.toBool {translateExpr test nativeIf} then {translateExpr val nativeIf} else {translateCond rest nativeIf})"
       else
         s!"(Logic.if_ {translateExpr test nativeIf} {translateExpr val nativeIf} {translateCond rest nativeIf})"
-    | .atom (.bool true) => translateExpr val nativeIf
     | _ =>
       if nativeIf then
         s!"(if Logic.toBool {translateExpr test nativeIf} then {translateExpr val nativeIf} else {translateCond rest nativeIf})"
@@ -122,13 +118,14 @@ partial def translateCond (clauses : SExpr) (nativeIf : Bool) : String :=
 partial def translateExpr (expr : SExpr) (nativeIf : Bool := false) : String :=
   match expr with
   | .nil => "SExpr.nil"
-  | .atom (.bool true) => "(SExpr.atom (.bool true))"
-  | .atom (.bool false) => "(SExpr.atom (.bool false))"
   | .atom (.number (.int n)) => s!"(SExpr.atom (.number (.int ({n}))))"
   | .atom (.number (.rational n d)) => s!"(Logic.rational ({n}) ({d}))"
   | .atom (.number (.decimal m e)) => s!"(Logic.decimal ({m}) ({e}))"
   | .atom (.string s) => s!"(SExpr.atom (.string \"{s}\"))"
-  | .atom (.symbol s) => translateSymbol s
+  | .atom (.symbol s) =>
+      if s.isNamed "t" then "SExpr.t"
+      else if s.isNamed "nil" then "SExpr.nil"
+      else translateSymbol s
   | .cons (.atom (.symbol s)) argsExpr =>
       if s.isNamed "quote" then
         match argsExpr with
@@ -354,7 +351,7 @@ private def uppercaseIfExpr : SExpr :=
   .cons
     (.atom (.symbol { name := "IF" }))
     (SExpr.ofList
-      [ .atom (.bool true)
+      [ .t
       , .cons (.atom (.symbol { name := "CONS" }))
           (SExpr.ofList [ .atom (.symbol { name := "X" }), .nil ])
       , .nil

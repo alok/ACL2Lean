@@ -46,7 +46,6 @@ inductive Atom
   | symbol (value : Symbol)
   | keyword (value : Keyword)
   | string (value : String)
-  | bool (value : Bool)
   | number (value : Number)
   deriving DecidableEq
 
@@ -55,8 +54,6 @@ instance : Repr Atom where
     | .symbol s => repr s
     | .keyword k => ":" ++ k
     | .string s => repr s
-    | .bool true => "T"
-    | .bool false => "NIL"
     | .number n => repr n
 
 /-- Minimal s-expression structure to model ACL2 source. -/
@@ -65,6 +62,9 @@ inductive SExpr
   | atom (a : Atom)
   | cons (car : SExpr) (cdr : SExpr)
   deriving DecidableEq, Inhabited
+
+/-- ACL2 `t` — the canonical truthy value. -/
+abbrev SExpr.t : SExpr := .atom (.symbol { name := "t" })
 
 namespace SExpr
 

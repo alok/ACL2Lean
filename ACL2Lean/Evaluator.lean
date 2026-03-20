@@ -14,12 +14,11 @@ namespace Evaluator
 /-- Check if an s-expression is truthy (non-nil). -/
 def isTruthy : SExpr → Bool
   | .nil => false
-  | .atom (.bool false) => false
   | _ => true
 
 /-- Convert a boolean to an ACL2 boolean (t or nil). -/
 def toACL2Bool (b : Bool) : SExpr :=
-  if b then SExpr.atom (.bool true) else SExpr.nil
+  if b then SExpr.t else SExpr.nil
 
 def isTrueList : SExpr → Bool
   | .nil => true
@@ -93,14 +92,14 @@ def bindArgs (formals : List Symbol) (args : List SExpr) : EvalM Env := do
 partial def eval (w : World) (env : Env) (expr : SExpr) : EvalM SExpr :=
   match expr with
   | .nil => .ok .nil
-  | .atom (.bool b) => .ok (toACL2Bool b)
   | .atom (.number n) => .ok (SExpr.atom (.number n))
   | .atom (.string s) => .ok (SExpr.atom (.string s))
+  | .atom (.keyword k) => .ok (SExpr.atom (.keyword k))
   | .atom (.symbol s) =>
       match env.get? s with
       | some v => .ok v
       | none =>
-          if s.normalizedName = "t" then .ok (SExpr.atom (.bool true))
+          if s.normalizedName = "t" then .ok SExpr.t
           else if s.normalizedName = "nil" then .ok .nil
           else throw s!"unbound variable: {s.name}"
   | .cons (.atom (.symbol s)) argsExpr => do

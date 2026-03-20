@@ -36,8 +36,6 @@ private def fnCountEvgInt (n : Int) (acc : Nat) : Nat :=
 /-- Count the "size" of an atom for fn-count-evg. -/
 private def fnCountEvgAtom (a : Atom) (acc : Nat) : Nat :=
   match a with
-  | .bool false => Nat.min fnCountEvgMaxVal (acc + 8)
-  | .bool true => Nat.min fnCountEvgMaxVal (acc + 4)
   | .symbol s =>
     if s.name.isEmpty then Nat.min fnCountEvgMaxVal (acc + 8)
     else
@@ -111,11 +109,11 @@ decreasing_by all_goals (simp_all [SExpr.acl2Count]; try omega)
 def term_order (term1 term2 : SExpr) : SExpr :=
   let (vc1, fc1, pfc1) := varFnCount1 false term1 0 0 0
   let (vc2, fc2, pfc2) := varFnCount1 false term2 0 0 0
-  if vc1 < vc2 then .atom (.bool true)
+  if vc1 < vc2 then .t
   else if vc1 > vc2 then .nil
-  else if fc1 < fc2 then .atom (.bool true)
+  else if fc1 < fc2 then .t
   else if fc1 > fc2 then .nil
-  else if pfc1 < pfc2 then .atom (.bool true)
+  else if pfc1 < pfc2 then .t
   else if pfc1 > pfc2 then .nil
   else lexorder term1 term2
 

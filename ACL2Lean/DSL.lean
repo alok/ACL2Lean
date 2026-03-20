@@ -110,7 +110,7 @@ partial def translateSExprValue (stx : Syntax) : MacroM (TSyntax `term) := do
        let nStx := Lean.quote n
        return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.number (_root_.ACL2.Number.int (Int.ofNat $nStx)))))
     else if name != "" && !name.contains '(' && !name.contains ')' && !name.contains ' ' then
-      if name == "t" then return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.bool true)))
+      if name == "t" then return (← `(_root_.ACL2.SExpr.t))
       else if name == "nil" then return (← `(_root_.ACL2.SExpr.nil))
       else if name == "_" || name == "?" then return (← `(_))
       else
@@ -169,7 +169,7 @@ partial def translateSExpr (stx : Syntax) : MacroM (TSyntax `term) := do
        let nStx := Lean.quote n
        return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.number (ACL2.Number.int (Int.ofNat $nStx)))))
     else if name != "" && !name.contains '(' && !name.contains ')' && !name.contains ' ' then
-      if name == "t" then return (← `(_root_.ACL2.SExpr.atom (_root_.ACL2.Atom.bool true)))
+      if name == "t" then return (← `(_root_.ACL2.SExpr.t))
       else if name == "nil" then return (← `(_root_.ACL2.SExpr.nil))
       else if name == "_" || name == "?" then return (← `(_))
       else return mkIdent (sanitize name)

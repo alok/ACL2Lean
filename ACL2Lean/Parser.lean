@@ -141,10 +141,9 @@ mutual
         let (rawTok, rest) := readAtom cs
         let tok := normalizeSymbolName rawTok
         if tok = "nil" then .ok (SExpr.nil, rest)
+        else if tok = "t" then .ok (SExpr.t, rest)
         else
           let atom : Atom :=
-            if tok = "t" then .bool true
-            else
               match tok.toInt? with
               | some n => .number (.int n)
               | none =>
