@@ -1602,3 +1602,44 @@ Next best ideas:
 1. import the next `tri-sq` or `apply-model` support theorem needed to turn one of the emitted `acl2_use_instance` seeds into a larger checked replay step rather than a theorem-local endpoint
 2. teach the replay path to consume theory-disable guidance around `pair-pow-2n-2n+1` so the `tri-sq` warning bundle becomes partially executable beyond just the `:USE` step
 3. decide whether the imported-instance replay stack from `Log2Replay` plus `TriSqReplay` is now coherent enough to promote the stable registry/replay-seed subset to `main`
+
+## 2026-03-20 Iteration 41
+
+Completed this iteration:
+
+- added `ACL2Lean.Tactics.acl2_induct_term "<acl2-call>"`, which parses an ACL2 function call, translates it to the corresponding Lean recursive definition, and applies that definition's induction principle
+- refactored the shared induction executor in `ACL2Lean.Tactics` so `acl2_induct_term` reuses the same core path as `acl2_induct`, while fixing the target-construction bug that previously left the elaborator falling back to `sorryAx`
+- taught `ACL2Lean.HintBridge.DynamicArtifact.replaySeedTacticLines` to emit induction replay seeds from real ACL2 induction actions, so live oracle output like `natp-clog2` now surfaces `induction: acl2_induct_term "(CLOG2 N)"`
+- updated `ACL2Lean.ProofMode` to surface the new induction replay seeds and next-move guidance in dynamic snapshots, and added Lean-side regression guards for both the CLI rendering and proof-mode snapshot path
+- updated `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md` to document the new induction-seed bridge and tracked the slice in Linear as `ALOK-581`
+
+Verification:
+
+- research branch commit `8c27d07`: `lean-lsp-mcp` diagnostics on `ACL2Lean/Tactics.lean`, `ACL2Lean/HintBridge.lean`, `ACL2Lean/ProofMode.lean`, and `ACL2Lean/Imported/Log2Replay.lean`
+- research branch commit `8c27d07`: `LAKE_NO_CACHE=1 lake build ACL2Lean.Tactics ACL2Lean.HintBridge ACL2Lean.ProofMode ACL2Lean.Imported.Log2Replay Main`
+- research branch commit `8c27d07`: `LAKE_NO_CACHE=1 lake build acl2lean`
+- research branch commit `8c27d07`: `lake build`
+- research branch commit `8c27d07`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `8c27d07`: `uv run python Verify.py`
+- research branch commit `8c27d07`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-log2.lisp natp-clog2 | sed -n '1,220p'`
+- research branch commit `8c27d07`: `lean-lsp-mcp lean_run_code` snippet proving `acl2_induct_term "(REPLAY-SEED-DEMO N)"` axiom-free on a translated recursive demo theorem
+- after restoring write permission on stale `.lake/build/lib/lean/ACL2Lean/ProofModeDemo.ilean`, `LAKE_NO_CACHE=1 lake build acl2lean` passed again
+- pushed research branch commit `8c27d07` to `origin/autoresearch/mar19-acl2lean`
+- `gh run watch 23341601318 --exit-status` succeeded for GitHub Actions run `23341601318`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- this is the first live induction replay seed on the branch: `acl2lean hints acl2_samples/2009-log2.lisp natp-clog2` now emits `induction: acl2_induct_term "(CLOG2 N)"` directly from ACL2's selected induction term
+- `acl2_induct_term` is now actually usable on translated recursive Lean definitions; the `runAcl2Induct` refactor fixed the old target-plumbing bug where explicit induction tactics could silently depend on `sorryAx`
+- some imported wrapper defs, including the current `Log2Replay.clog2`, still do not expose an induction principle, so the new induction seeds are candidate replay tactics unless the translated Lean side already has a matching recursive definition
+
+Next best ideas:
+
+1. map dynamic ACL2 induction names like `CLOG2` onto the actual induction-capable Lean mirrors or translated defs so emitted induction seeds become directly executable on imported theorem bundles instead of only candidate guidance
+2. extend the replay-seed/executor path beyond `:USE` and induction to simple `:EXPAND` and checkpoint-local split guidance
+3. turn theory-disable guidance into executable Lean-side simp/grind configuration changes instead of leaving it at the rune-profile / replay-state summary layer
