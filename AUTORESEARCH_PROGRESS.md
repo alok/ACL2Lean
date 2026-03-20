@@ -1146,3 +1146,42 @@ Next best ideas:
 1. start executing dynamic `use`, theory, induction, clause-processor, and now `otf-flg` actions against Lean replay state instead of only surfacing them structurally
 2. scan the corpus for any other theorem-level transcript directives that ACL2 actually echoes consistently enough to justify promotion into first-class dynamic actions
 3. decide whether the recent dynamic hint/proof-mode slices are coherent enough to promote together to `main` as one stable replay-infrastructure batch
+
+## 2026-03-20 Iteration 7
+
+Completed this iteration:
+
+- added Lean-side payload decoders for warning-derived dynamic ACL2 actions in `ACL2Lean.HintBridge`: `DisableRulePayload`, `DisableDefinitionPayload`, `FreeVariableBindingPayload`, and `RewriteOverlapPayload`
+- taught `DynamicAction.structuredLines` to render those warning payloads as labeled fields, so `acl2lean hints` now shows structured `disable-rule`, `disable-definition`, `theorem`, `variable`, `hypothesis`, `trigger-term`, `generated-theorem`, and `existing-rule` lines instead of only flat summaries plus positional targets
+- extended `ACL2Lean.ProofMode` to surface the same warning payload structure in dynamic snapshot notes via `action-disable-rule`, `action-disable-definition`, `action-warning-theorem`, `action-free-variable`, `action-binding-hypothesis`, `action-trigger-term`, `action-generated-theorem`, and `action-existing-rule`
+- added Lean guard coverage proving the new payload decoders work on representative warning actions, and documented the richer Lean-side dynamic warning normalization in `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md`
+- tracked the slice in Linear as `ALOK-570`
+
+Verification:
+
+- research branch commit `20478bf`: `lake build ACL2Lean.HintBridge ACL2Lean.ProofMode Main`
+- research branch commit `20478bf`: `lake build acl2lean`
+- research branch commit `20478bf`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-log2.lisp nbr-calls-flog2-is-logarithmic | sed -n '34,46p'`
+- research branch commit `20478bf`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp 'mod-+-*-floor-gcd' | sed -n '84,98p'`
+- research branch commit `20478bf`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-tri-sq.lisp Lemma-2 | sed -n '48,66p'`
+- research branch commit `20478bf`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-tri-sq.lisp Lemma-4 | sed -n '44,62p'`
+- research branch commit `20478bf`: `lake build`
+- research branch commit `20478bf`: `uv run python Verify.py`
+- research branch state after `20478bf`: `lake exe acl2lean ci autoresearch/mar19-acl2lean` showed the latest remote branch runs still green before the fresh push
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- this closes a Lean-side gap in the hint-generator path: warning guidance was already classified in Python, but Lean replay/UI consumers still had to infer structure from summary strings and target positions
+- the new payload decoders make warning guidance as inspectable as the existing theory / expand / clause-processor / induction / `otf-flg` paths, which is the right shape for the next replay step
+- the `lean-lsp-mcp` diagnostics for `ACL2Lean.HintBridge` stayed clean after the edit; `ACL2Lean.ProofMode` was validated via successful rebuilds instead because the imported dependency view lagged briefly while the updated `HintBridge` module was recompiling
+
+Next best ideas:
+
+1. execute `disable-rule`, `disable-definition`, and `use` warning actions against Lean replay state instead of only rendering them
+2. turn structured free-variable and rewrite-overlap payloads into proof-mode next-move grouping or checkpoint-local heuristics rather than leaving them only in notes
+3. decide whether the recent dynamic hint/proof-mode slices are coherent enough to promote together to `main` as one stable replay-infrastructure batch
