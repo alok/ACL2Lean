@@ -253,13 +253,12 @@ private def dynamicCheckpoints (artifact : ACL2.HintBridge.DynamicArtifact) : Li
   | checkpoints => context :: checkpoints
 
 private def dynamicRunes (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
-  let replayState := artifact.replayState
+  let runeProfile := artifact.runeProfile
   let nonTheoryHintEvents :=
     artifact.hint_events.filter (fun event => !(inlineBlock event).startsWith "(:IN-THEORY")
   dedupStrings <|
-    (artifact.summaryRuleItems.map (fun item => s!"summary-rule {item}")) ++
+    runeProfile.runeLines ++
       (nonTheoryHintEvents.map (fun event => s!"hint-event {event}")) ++
-      (replayState.theoryTimeline.map (fun line => s!"theory-step {line}")) ++
       (artifact.splitter_rules.map (fun rule => s!"splitter {rule}")) ++
       (artifact.warning_kinds.map (fun kind => s!"warning-kind {kind}"))
 
@@ -377,16 +376,27 @@ private def actionNote (action : ACL2.HintBridge.DynamicAction) : String :=
 
 private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
   let replayState := artifact.replayState
+  let runeProfile := artifact.runeProfile
   dedupStrings <|
     (artifact.actions.map actionSummary) ++
-    [ if artifact.summary_rules.isEmpty then
-        some "ACL2 did not report summary rules for this theorem; extend the parser or pick a theorem whose proof emits replay-relevant rule usage."
+    [ if runeProfile.simpCandidates.isEmpty then
+        if artifact.summary_rules.isEmpty then
+          some "ACL2 did not report summary rules for this theorem; extend the parser or pick a theorem whose proof emits replay-relevant rule usage."
+        else
+          some "ACL2 reported summary rules, but none currently map into the Lean-side simp lane; inspect unusual ACL2 rule classes before replay."
       else
-        some "Map ACL2's summary rules into a Lean-side active rune or simp-set model instead of treating them as display-only metadata."
-    , if replayState.theoryTimeline.isEmpty then
+        some "Start replay with the rune-profile's Lean simp candidates instead of flattening ACL2 summary rules into prose."
+    , if runeProfile.grindCandidates.isEmpty then
         none
       else
-        some "Translate ACL2's interpreted theory timeline into Lean-side simp/grind configuration instead of leaving theory changes as display-only metadata."
+        some "Use the rune-profile's Lean grind candidates to seed arithmetic or elimination replay before broad manual search."
+    , if runeProfile.theoryEnables.isEmpty && runeProfile.theoryDisables.isEmpty then
+        if replayState.theoryTimeline.isEmpty then
+          none
+        else
+          some "ACL2 emitted theory steps but the rune profile could not isolate concrete enable/disable entries; inspect nested theory combinators before replay."
+      else
+        some "Translate the rune-profile's theory enable/disable guidance into Lean-side simp/grind configuration instead of leaving theory changes as display-only metadata."
     , if artifact.hint_events.isEmpty then
         none
       else
@@ -431,6 +441,7 @@ private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List
 
 private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
   let replayState := artifact.replayState
+  let runeProfile := artifact.runeProfile
   dedupStrings <|
     [ s!"Source ACL2 book: {sourcePath}"
     , s!"ACL2 loaded book: {artifact.resolved_book}"
@@ -448,6 +459,7 @@ private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.Dynam
       (match artifact.prover_steps with
         | some steps => [s!"ACL2 prover steps: {steps}"]
         | none => []) ++
+      runeProfile.noteLines ++
       replayState.noteLines ++
       (artifact.actions.map actionNote) ++
       (artifact.actions.foldr
@@ -631,7 +643,7 @@ private def dynamicTheoryItemsSurfaceInRunes : Bool :=
       stderr := ""
       exit_code := 0
     }
-  dynamicRunes artifact = ["theory-step hint-event: disable floor"]
+  dynamicRunes artifact = ["theory-disable floor"]
 
 #guard dynamicTheoryItemsSurfaceInRunes
 
@@ -665,8 +677,8 @@ private def dynamicSummaryRulesSurfaceInRunes : Bool :=
       exit_code := 0
     }
   dynamicRunes artifact =
-      [ "summary-rule rewrite nbr-calls-flog2-upper-bound"
-      , "summary-rule fake-rune-for-linear NIL"
+      [ "summary/rewrite nbr-calls-flog2-upper-bound"
+      , "summary/fake-rune-for-linear fake-rune-for-linear NIL"
       ]
 
 #guard dynamicSummaryRulesSurfaceInRunes

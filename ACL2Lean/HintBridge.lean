@@ -170,6 +170,16 @@ private def renderLabeledItems (label : String) (items : List String) (indent : 
 
 namespace SummaryRule
 
+private def leanLaneOfKind (kind : String) : String :=
+  if kind = "rewrite" || kind = "definition" || kind = "compound-recognizer" ||
+      kind = "executable-counterpart" then
+    "simp"
+  else if kind = "linear" || kind = "type-prescription" || kind = "elim" ||
+      kind = "forward-chaining" || kind = "fake-rune-for-linear" then
+    "grind"
+  else
+    "other"
+
 def ofSExpr? : SExpr → Option SummaryRule
   | .atom (.keyword key) => some { kind := key.map Char.toLower }
   | expr => do
@@ -200,6 +210,19 @@ def structuredLines (rule : SummaryRule) (indent : Nat := 0) : List String :=
       | some target => renderLabeledItems "target" [toString target] indent
       | none => []) ++
     renderLabeledItems "extra" (rule.extras.map toString) indent
+
+def bucketItem (rule : SummaryRule) : String :=
+  if rule.kind.startsWith "fake-rune" then
+    rule.summary
+  else
+    let extraSummary := String.intercalate "; " (rule.extras.map toString)
+    match rule.target?, extraSummary.isEmpty with
+    | some target, true => toString target
+    | some target, false => s!"{target} with {extraSummary}"
+    | none, _ => rule.summary
+
+def leanLane (rule : SummaryRule) : String :=
+  leanLaneOfKind rule.kind
 
 end SummaryRule
 
@@ -566,6 +589,123 @@ private def dedupStrings (items : List String) : List String :=
         acc ++ [item])
     []
 
+structure DynamicRuneBucket where
+  kind : String
+  items : List String := []
+  deriving Inhabited, Repr
+
+structure TheoryGuidance where
+  enables : List String := []
+  disables : List String := []
+  opaqueItems : List String := []
+  deriving Inhabited, Repr
+
+structure DynamicRuneProfile where
+  summaryBuckets : List DynamicRuneBucket := []
+  theoryEnables : List String := []
+  theoryDisables : List String := []
+  theoryOpaque : List String := []
+  deriving Inhabited, Repr
+
+namespace DynamicRuneProfile
+
+private def leanLaneOfKind (kind : String) : String :=
+  if kind = "rewrite" || kind = "definition" || kind = "compound-recognizer" ||
+      kind = "executable-counterpart" then
+    "simp"
+  else if kind = "linear" || kind = "type-prescription" || kind = "elim" ||
+      kind = "forward-chaining" || kind = "fake-rune-for-linear" then
+    "grind"
+  else
+    "other"
+
+private def addBucketItem (buckets : List DynamicRuneBucket) (kind item : String) : List DynamicRuneBucket :=
+  let item := item.trimAscii.toString
+  if item.isEmpty then
+    buckets
+  else
+    match buckets with
+    | [] => [{ kind, items := [item] }]
+    | bucket :: rest =>
+        if bucket.kind = kind then
+          { bucket with items := dedupStrings (bucket.items ++ [item]) } :: rest
+        else
+          bucket :: addBucketItem rest kind item
+
+def addSummaryRule (profile : DynamicRuneProfile) (rule : SummaryRule) : DynamicRuneProfile :=
+  { profile with
+      summaryBuckets := addBucketItem profile.summaryBuckets rule.kind rule.bucketItem }
+
+def addTheoryGuidance (profile : DynamicRuneProfile) (guidance : TheoryGuidance) : DynamicRuneProfile :=
+  { profile with
+      theoryEnables := dedupStrings (profile.theoryEnables ++ guidance.enables)
+      theoryDisables := dedupStrings (profile.theoryDisables ++ guidance.disables)
+      theoryOpaque := dedupStrings (profile.theoryOpaque ++ guidance.opaqueItems) }
+
+def addTheoryEnable (profile : DynamicRuneProfile) (item : String) : DynamicRuneProfile :=
+  addTheoryGuidance profile { enables := [item] }
+
+def addTheoryDisable (profile : DynamicRuneProfile) (item : String) : DynamicRuneProfile :=
+  addTheoryGuidance profile { disables := [item] }
+
+def bucketItems (profile : DynamicRuneProfile) (kind : String) : List String :=
+  match profile.summaryBuckets.find? (·.kind = kind) with
+  | some bucket => bucket.items
+  | none => []
+
+def simpCandidates (profile : DynamicRuneProfile) : List String :=
+  dedupStrings <|
+    profile.summaryBuckets.foldl
+      (fun acc bucket =>
+        if leanLaneOfKind bucket.kind = "simp" then
+          acc ++ bucket.items
+        else
+          acc)
+      []
+
+def grindCandidates (profile : DynamicRuneProfile) : List String :=
+  dedupStrings <|
+    profile.summaryBuckets.foldl
+      (fun acc bucket =>
+        if leanLaneOfKind bucket.kind = "grind" then
+          acc ++ bucket.items
+        else
+          acc)
+      []
+
+def isEmpty (profile : DynamicRuneProfile) : Bool :=
+  profile.summaryBuckets.isEmpty &&
+    profile.theoryEnables.isEmpty &&
+    profile.theoryDisables.isEmpty &&
+    profile.theoryOpaque.isEmpty
+
+def runeLines (profile : DynamicRuneProfile) : List String :=
+  let summaryLines :=
+    profile.summaryBuckets.foldl
+      (fun acc bucket =>
+        acc ++ bucket.items.map (fun item => s!"summary/{bucket.kind} {item}"))
+      []
+  summaryLines ++
+    (profile.theoryEnables.map (fun item => s!"theory-enable {item}")) ++
+    (profile.theoryDisables.map (fun item => s!"theory-disable {item}")) ++
+    (profile.theoryOpaque.map (fun item => s!"theory-opaque {item}"))
+
+def noteLines (profile : DynamicRuneProfile) : List String :=
+  let summaryLines :=
+    profile.summaryBuckets.foldl
+      (fun acc bucket =>
+        let lane := leanLaneOfKind bucket.kind
+        acc ++ bucket.items.map (fun item => s!"Rune profile {lane}/{bucket.kind}: {item}"))
+      []
+  summaryLines ++
+    (profile.theoryEnables.map (fun item => s!"Theory enable: {item}")) ++
+    (profile.theoryDisables.map (fun item => s!"Theory disable: {item}")) ++
+    (profile.theoryOpaque.map (fun item => s!"Theory context: {item}")) ++
+    (simpCandidates profile).map (fun item => s!"Lean simp candidate: {item}") ++
+    (grindCandidates profile).map (fun item => s!"Lean grind candidate: {item}")
+
+end DynamicRuneProfile
+
 private def goalSuffix (goalTarget : Option String) : String :=
   match goalTarget with
   | some goal => s!" @ {goal}"
@@ -646,6 +786,35 @@ end DynamicReplayState
 
 namespace DynamicArtifact
 
+private def theoryGuidanceOf : TheoryExpr → TheoryGuidance
+  | .enable items => { enables := items.map toString }
+  | .disable items => { disables := items.map toString }
+  | .e_d enabled disabled =>
+      { enables := enabled.map toString
+        disables := disabled.map toString }
+  | .literal items => { opaqueItems := items.map (fun item => s!"literal {item}") }
+  | .union lhs rhs =>
+      let lhsGuidance := theoryGuidanceOf lhs
+      let rhsGuidance := theoryGuidanceOf rhs
+      { enables := lhsGuidance.enables ++ rhsGuidance.enables
+        disables := lhsGuidance.disables ++ rhsGuidance.disables
+        opaqueItems := ["union-theories"] ++ lhsGuidance.opaqueItems ++ rhsGuidance.opaqueItems }
+  | .setDifference lhs rhs =>
+      let lhsGuidance := theoryGuidanceOf lhs
+      let rhsGuidance := theoryGuidanceOf rhs
+      { enables := lhsGuidance.enables ++ rhsGuidance.enables
+        disables := lhsGuidance.disables ++ rhsGuidance.disables
+        opaqueItems := ["set-difference-theories"] ++ lhsGuidance.opaqueItems ++ rhsGuidance.opaqueItems }
+  | .cons item rest =>
+      let restGuidance := theoryGuidanceOf rest
+      { enables := restGuidance.enables
+        disables := restGuidance.disables
+        opaqueItems := [s!"cons {item}"] ++ restGuidance.opaqueItems }
+  | .call name [] => { opaqueItems := [name] }
+  | .call name args => { opaqueItems := [s!"{name} [{String.intercalate ", " (args.map toString)}]"] }
+  | .ref expr => { opaqueItems := [toString expr] }
+  | .raw expr => { opaqueItems := [toString expr] }
+
 def summaryRulePayloads (artifact : DynamicArtifact) : List SummaryRule :=
   artifact.summary_rules.filterMap SummaryRule.ofString?
 
@@ -654,6 +823,37 @@ def summaryRuleItems (artifact : DynamicArtifact) : List String :=
     match SummaryRule.ofString? ruleText with
     | some rule => rule.summary
     | none => ruleText
+
+def runeProfile (artifact : DynamicArtifact) : DynamicRuneProfile :=
+  let fromSummary :=
+    artifact.summaryRulePayloads.foldl
+      (fun profile rule => profile.addSummaryRule rule)
+      ({} : DynamicRuneProfile)
+  let fromActions :=
+    artifact.actions.foldl
+      (fun profile action =>
+        match action.kind with
+        | "in-theory" =>
+            match action.theoryExpr? with
+            | some theoryExpr => profile.addTheoryGuidance (theoryGuidanceOf theoryExpr)
+            | none => profile
+        | "disable-rule" =>
+            match action.disableRulePayload? with
+            | some payload => profile.addTheoryDisable payload.rune
+            | none => profile
+        | "disable-definition" =>
+            match action.disableDefinitionPayload? with
+            | some payload => profile.addTheoryDisable payload.definitionRune
+            | none => profile
+        | _ => profile)
+      fromSummary
+  { fromActions with
+      summaryBuckets :=
+        fromActions.summaryBuckets.map (fun bucket =>
+          { bucket with items := dedupStrings bucket.items })
+      theoryEnables := dedupStrings fromActions.theoryEnables
+      theoryDisables := dedupStrings fromActions.theoryDisables
+      theoryOpaque := dedupStrings fromActions.theoryOpaque }
 
 def replayState (artifact : DynamicArtifact) : DynamicReplayState :=
   let state : DynamicReplayState :=
@@ -792,6 +992,23 @@ private def renderSimpleSection (title : String) (items : List String) : List St
   else
     title :: items.map (fun item => s!"  {item}")
 
+private def renderRuneProfile (profile : DynamicRuneProfile) : List String :=
+  if profile.isEmpty then
+    []
+  else
+    let summaryBuckets :=
+      profile.summaryBuckets.foldl
+        (fun acc bucket =>
+          acc ++ renderLabeledItems s!"summary-{bucket.kind}" bucket.items 2)
+        []
+    let theoryEnables := renderLabeledItems "theory-enables" profile.theoryEnables 2
+    let theoryDisables := renderLabeledItems "theory-disables" profile.theoryDisables 2
+    let theoryOpaque := renderLabeledItems "theory-context" profile.theoryOpaque 2
+    let simpCandidates := renderLabeledItems "lean-simp-candidates" profile.simpCandidates 2
+    let grindCandidates := renderLabeledItems "lean-grind-candidates" profile.grindCandidates 2
+    "rune-profile:" ::
+      summaryBuckets ++ theoryEnables ++ theoryDisables ++ theoryOpaque ++ simpCandidates ++ grindCandidates
+
 private def renderReplayState (state : DynamicReplayState) : List String :=
   if state.isEmpty then
     []
@@ -844,6 +1061,7 @@ private def renderActions (actions : List DynamicAction) : List String :=
 
 def renderLines (artifact : DynamicArtifact) : List String :=
   let replayState := artifact.replayState
+  let runeProfile := artifact.runeProfile
   let header :=
     [ s!"book: {artifact.book}"
     , if artifact.resolved_book = artifact.book then
@@ -882,6 +1100,7 @@ def renderLines (artifact : DynamicArtifact) : List String :=
     | some steps => [s!"prover-steps: {steps}"]
     | none => []
   let actions := renderActions artifact.actions
+  let runes := renderRuneProfile runeProfile
   let replay := renderReplayState replayState
   let observations := renderBlockSection "observations:" artifact.observations
   let warnings := renderBlockSection "warnings:" artifact.warnings
@@ -908,7 +1127,7 @@ def renderLines (artifact : DynamicArtifact) : List String :=
             , s!"    {entry.text.replace "\n" "\n    "}"
             ] ++ acc)
           []
-  header ++ loadNote ++ loadSteps ++ summary ++ summaryRules ++ hintEvents ++ splitterRules ++ warningKinds ++ summaryTime ++ proverSteps ++ actions ++ replay ++ observations ++ warnings ++ inductions ++ progress ++ checkpoints
+  header ++ loadNote ++ loadSteps ++ summary ++ summaryRules ++ hintEvents ++ splitterRules ++ warningKinds ++ summaryTime ++ proverSteps ++ actions ++ runes ++ replay ++ observations ++ warnings ++ inductions ++ progress ++ checkpoints
 
 private def dynamicExpandPayloadParses : Bool :=
   let action : DynamicAction :=
@@ -1228,6 +1447,66 @@ private def dynamicSummaryRulesRenderStructured : Bool :=
     (renderLines artifact).any (·.contains "fake-rune-for-linear NIL")
 
 #guard dynamicSummaryRulesRenderStructured
+
+private def dynamicRuneProfileSummarizesRulesAndTheory : Bool :=
+  let artifact : DynamicArtifact :=
+    { book := "acl2_samples/demo.lisp"
+      resolved_book := "acl2_samples/demo.lisp"
+      load_steps := ["acl2_samples/demo.lisp"]
+      load_note := ""
+      requested_theorem := "demo"
+      theorem_name := "DEMO"
+      status := "proved"
+      summary_form := "( DEFTHM DEMO ...)"
+      summary_rules :=
+        [ "(:REWRITE NBR-CALLS-FLOG2-UPPER-BOUND)"
+        , "(:DEFINITION FLOOR)"
+        , "(:LINEAR CLOG2-IS-CORRECT-UPPER)"
+        ]
+      hint_events := []
+      splitter_rules := []
+      warning_kinds := []
+      summary_time := ""
+      prover_steps := none
+      actions :=
+        [ { kind := "in-theory"
+            source := "hint-event"
+            summary := "adjust theory (E/D (ACCUMULATE-ILK) (BADGE))"
+            goal_target := none
+            targets := ["(E/D (ACCUMULATE-ILK) (BADGE))"]
+            detail := "(:IN-THEORY (E/D (ACCUMULATE-ILK) (BADGE)))"
+          }
+        , { kind := "disable-rule"
+            source := "warning"
+            summary := "disable (:REWRITE NBR-CALLS-FLOG2-UPPER-BOUND) in Goal"
+            goal_target := some "Goal"
+            targets := ["(:REWRITE NBR-CALLS-FLOG2-UPPER-BOUND)", "Goal"]
+            detail := "ACL2 Warning [Use] ..."
+          }
+        ]
+      checkpoints := []
+      progress := []
+      observations := []
+      warnings := []
+      inductions := []
+      raw_excerpt := []
+      stderr := ""
+      exit_code := 0
+    }
+  let profile := artifact.runeProfile
+  profile.bucketItems "rewrite" = ["nbr-calls-flog2-upper-bound"] &&
+    profile.bucketItems "definition" = ["floor"] &&
+    profile.bucketItems "linear" = ["clog2-is-correct-upper"] &&
+    profile.theoryEnables = ["accumulate-ilk"] &&
+    profile.theoryDisables.contains "badge" &&
+    profile.theoryDisables.contains "(:REWRITE NBR-CALLS-FLOG2-UPPER-BOUND)" &&
+    profile.simpCandidates.contains "nbr-calls-flog2-upper-bound" &&
+    profile.simpCandidates.contains "floor" &&
+    profile.grindCandidates.contains "clog2-is-correct-upper" &&
+    (renderLines artifact).any (·.contains "rune-profile:") &&
+    (renderLines artifact).any (·.contains "lean-simp-candidates")
+
+#guard dynamicRuneProfileSummarizesRulesAndTheory
 
 private def dynamicReplayStateSummarizesActions : Bool :=
   let artifact : DynamicArtifact :=
