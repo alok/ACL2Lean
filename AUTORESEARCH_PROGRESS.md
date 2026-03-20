@@ -1185,3 +1185,46 @@ Next best ideas:
 1. execute `disable-rule`, `disable-definition`, and `use` warning actions against Lean replay state instead of only rendering them
 2. turn structured free-variable and rewrite-overlap payloads into proof-mode next-move grouping or checkpoint-local heuristics rather than leaving them only in notes
 3. decide whether the recent dynamic hint/proof-mode slices are coherent enough to promote together to `main` as one stable replay-infrastructure batch
+
+## 2026-03-20 Iteration 31
+
+Completed this iteration:
+
+- added Lean-side `UsePayload` parsing in `ACL2Lean.HintBridge`, so dynamic ACL2 `use` actions are no longer only flat strings once they cross back into Lean
+- taught the new path to distinguish plain theorem refs from `(:THEOREM ...)` payloads and `(:INSTANCE ...)` payloads with explicit substitution bindings
+- updated `DynamicAction.structuredLines` so `acl2lean hints ...` now renders `use-instance`, `binding`, and `use-theorem` lines for real emitted ACL2 guidance instead of leaving instance/theorem forms opaque
+- extended `ACL2Lean.ProofMode` so dynamic hint snapshots emit matching `action-use-instance`, `action-use-binding`, and `action-use-theorem` notes for downstream replay/UI consumers
+- added Lean guard coverage for the new payload parser and documented the richer dynamic `:USE` normalization in `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md`
+- tracked the slice in Linear as `ALOK-571`
+
+Verification:
+
+- research branch commit `6098e85`: `lean-lsp-mcp` diagnostics on `ACL2Lean/HintBridge.lean`
+- research branch commit `6098e85`: `lake build ACL2Lean.HintBridge ACL2Lean.ProofMode Main`
+- research branch commit `6098e85`: `lake build acl2lean`
+- research branch commit `6098e85`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp nonnegative-integer-quotient-gcd-relatively-prime | rg -n 'use-instance|binding:|p :=|d :='`
+- research branch commit `6098e85`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-tri-sq.lisp Lemma-2-j | rg -n 'use-theorem'`
+- research branch commit `6098e85`: `lean-lsp-mcp lean_run_code` confirmed `ACL2.ProofMode.snapshotOfDynamicHints` emits `action-use-instance` / `action-use-binding` notes on `nonnegative-integer-quotient-gcd-relatively-prime` and `action-use-theorem` on `Lemma-2-j`
+- research branch commit `6098e85`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `6098e85`: `uv run python Verify.py`
+- research branch commit `6098e85`: `lake build`
+- pushed research branch commit `6098e85` to `origin/autoresearch/mar19-acl2lean`
+- research branch commit `6098e85`: `lake exe acl2lean ci autoresearch/mar19-acl2lean` still showed the previously completed green runs before the fresh push appeared
+- `gh run watch 23334027708 --exit-status` succeeded for GitHub Actions run `23334027708`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- this closes the biggest remaining Lean-side normalization gap in the dynamic hint bridge: `:USE` is the most common replay-oriented hint class in the local sample corpus, and Lean can now inspect theorem-vs-instance shape plus concrete substitutions instead of scraping raw payload text
+- the real `die-hard` artifact now surfaces instance bindings such as `p := ...`, `q := ...`, and `d := ...` through the CLI and proof-mode notes, while the real `tri-sq` artifact for `Lemma-2-j` now surfaces a structured `use-theorem` line
+- I did not promote this slice to `main` yet because it still deepens the research-branch-only dynamic hint/proof-mode path; it should likely promote together with the broader dynamic replay/UI batch rather than as a standalone mainline patch
+
+Next best ideas:
+
+1. execute structured dynamic `use` actions against Lean replay state, starting with theorem refs and `(:INSTANCE ...)` substitutions rather than only surfacing them in notes
+2. give `split-goal` and `typed-term` actions the same Lean-side payload treatment so replay/UI consumers stop relying on flat summaries for those paths too
+3. decide whether the recent dynamic hint/proof-mode slices from `:IN-THEORY` through warning payloads and now `:USE` are coherent enough to promote together to `main`
