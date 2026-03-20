@@ -1,5 +1,6 @@
 import Lean
 import Lean.Data.Json
+import ACL2Lean.Parser
 
 open Lean
 
@@ -95,6 +96,36 @@ def fetchArtifact (book theoremName : String) : IO (Except String DynamicArtifac
   else
     pure <| parseArtifact out.stdout
 
+private def parseSingleSExpr? (text : String) : Option SExpr :=
+  match ACL2.Parse.parseAll text with
+  | .ok [expr] => some expr
+  | _ => none
+
+namespace DynamicAction
+
+def payload? (action : DynamicAction) : Option String :=
+  action.targets.head?
+
+def theoryExpr? (action : DynamicAction) : Option TheoryExpr := do
+  if action.kind != "in-theory" then
+    none
+  else
+    let payload ← action.payload?
+    let expr ← parseSingleSExpr? payload
+    some (TheoryExpr.ofSExpr expr)
+
+def theoryItems (action : DynamicAction) : List String :=
+  match action.theoryExpr? with
+  | some theoryExpr => theoryExpr.bulletItems
+  | none => []
+
+def theoryLines (action : DynamicAction) (indent : Nat := 0) : List String :=
+  match action.theoryExpr? with
+  | some theoryExpr => TheoryExpr.labeledLines "theory" theoryExpr indent
+  | none => []
+
+end DynamicAction
+
 private def renderBlockSection (title : String) (items : List String) : List String :=
   if items.isEmpty then
     []
@@ -110,23 +141,28 @@ private def renderSimpleSection (title : String) (items : List String) : List St
   else
     title :: items.map (fun item => s!"  {item}")
 
+private def renderActionLines (action : DynamicAction) : List String :=
+  let goalLine :=
+    match action.goal_target with
+    | some goal => [s!"    goal-target: {goal}"]
+    | none => []
+  let targetLine :=
+    if action.targets.isEmpty then
+      []
+    else
+      [s!"    targets: {String.intercalate ", " action.targets}"]
+  [s!"  [{action.source}/{action.kind}] {action.summary}"] ++
+    goalLine ++
+    targetLine ++
+    (action.theoryLines 4)
+
 private def renderActions (actions : List DynamicAction) : List String :=
   if actions.isEmpty then
     []
   else
     "actions:" ::
       actions.foldr
-        (fun action acc =>
-          let goalLine :=
-            match action.goal_target with
-            | some goal => [s!"    goal-target: {goal}"]
-            | none => []
-          let targetLine :=
-            if action.targets.isEmpty then
-              []
-            else
-              [s!"    targets: {String.intercalate ", " action.targets}"]
-          ([s!"  [{action.source}/{action.kind}] {action.summary}"] ++ goalLine ++ targetLine) ++ acc)
+        (fun action acc => renderActionLines action ++ acc)
         []
 
 def renderLines (artifact : DynamicArtifact) : List String :=

@@ -191,6 +191,10 @@ private def checkpointTargetedActions
     (checkpoint : ACL2.HintBridge.DynamicCheckpoint) : List ACL2.HintBridge.DynamicAction :=
   artifact.actions.filter (fun action => action.goal_target = some checkpoint.label)
 
+private def targetedActionDetailLines (action : ACL2.HintBridge.DynamicAction) : List String :=
+  [s!"- {action.summary}"] ++
+    (action.theoryItems.map (fun item => s!"    theory: {item}"))
+
 private def dynamicCheckpointDetail
     (artifact : ACL2.HintBridge.DynamicArtifact)
     (checkpoint : ACL2.HintBridge.DynamicCheckpoint) : String :=
@@ -200,7 +204,8 @@ private def dynamicCheckpointDetail
   else
     checkpoint.text ++
       "\n\nTargeted ACL2 actions:\n" ++
-      String.intercalate "\n" (targeted.map (fun action => s!"- {action.summary}"))
+      (String.intercalate "\n" <|
+        targeted.foldr (fun action acc => targetedActionDetailLines action ++ acc) [])
 
 private def dynamicCheckpointEntries
     (artifact : ACL2.HintBridge.DynamicArtifact)
@@ -248,9 +253,14 @@ private def dynamicCheckpoints (artifact : ACL2.HintBridge.DynamicArtifact) : Li
   | checkpoints => context :: checkpoints
 
 private def dynamicRunes (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
+  let nonTheoryHintEvents :=
+    artifact.hint_events.filter (fun event => !(inlineBlock event).startsWith "(:IN-THEORY")
+  let dynamicTheoryItems :=
+    artifact.actions.foldr (fun action acc => action.theoryItems ++ acc) []
   dedupStrings <|
     artifact.summary_rules ++
-      (artifact.hint_events.map (fun event => s!"hint-event {event}")) ++
+      (nonTheoryHintEvents.map (fun event => s!"hint-event {event}")) ++
+      dynamicTheoryItems ++
       (artifact.splitter_rules.map (fun rule => s!"splitter {rule}")) ++
       (artifact.warning_kinds.map (fun kind => s!"warning-kind {kind}"))
 
@@ -267,7 +277,11 @@ private def actionNote (action : ACL2.HintBridge.DynamicAction) : String :=
       ""
     else
       s!" [{String.intercalate ", " action.targets}]"
-  s!"action {action.source}/{action.kind}{goalTarget}: {action.summary}{targets}"
+  let theory :=
+    match action.theoryItems with
+    | [] => ""
+    | items => " {theory: " ++ String.intercalate "; " items ++ "}"
+  s!"action {action.source}/{action.kind}{goalTarget}: {action.summary}{targets}{theory}"
 
 private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
   dedupStrings <|
@@ -317,6 +331,10 @@ private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.Dynam
         | some steps => [s!"ACL2 prover steps: {steps}"]
         | none => []) ++
       (artifact.actions.map actionNote) ++
+      (artifact.actions.foldr
+        (fun action acc =>
+          (action.theoryItems.map (fun item => s!"action-theory {action.source}/{action.kind}: {item}")) ++ acc)
+        []) ++
       (if artifact.observations.isEmpty then [] else artifact.observations.map (fun block => s!"observation: {inlineBlock block}")) ++
       (if artifact.warnings.isEmpty then [] else artifact.warnings.map (fun block => s!"warning: {inlineBlock block}")) ++
       (if artifact.inductions.isEmpty then [] else artifact.inductions.map (fun block => s!"induction: {inlineBlock block}")) ++
@@ -337,6 +355,44 @@ def snapshotOfDynamicHints
     nextMoves := dynamicNextMoves artifact
     notes := dynamicNotes sourcePath artifact
   }
+
+private def dynamicTheoryItemsSurfaceInRunes : Bool :=
+  let artifact : ACL2.HintBridge.DynamicArtifact :=
+    { book := "acl2_samples/demo.lisp"
+      resolved_book := "acl2_samples/demo.lisp"
+      load_steps := ["acl2_samples/demo.lisp"]
+      load_note := ""
+      requested_theorem := "demo"
+      theorem_name := "DEMO"
+      status := "proved"
+      summary_form := "( DEFTHM DEMO ...)"
+      summary_rules := []
+      hint_events := ["(:IN-THEORY (DISABLE FLOOR))"]
+      splitter_rules := []
+      warning_kinds := []
+      summary_time := ""
+      prover_steps := none
+      actions :=
+        [ { kind := "in-theory"
+            source := "hint-event"
+            summary := "adjust theory (DISABLE FLOOR)"
+            goal_target := none
+            targets := ["(DISABLE FLOOR)"]
+            detail := "(:IN-THEORY (DISABLE FLOOR))"
+          }
+        ]
+      checkpoints := []
+      progress := []
+      observations := []
+      warnings := []
+      inductions := []
+      raw_excerpt := []
+      stderr := ""
+      exit_code := 0
+    }
+  dynamicRunes artifact = ["disable floor"]
+
+#guard dynamicTheoryItemsSurfaceInRunes
 
 private def findImportedTheoremContext
     (events : List Event)
