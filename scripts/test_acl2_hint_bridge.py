@@ -99,6 +99,56 @@ class HintBridgeParsingTests(unittest.TestCase):
                 for action in artifact["actions"]
             )
         )
+        self.assertTrue(
+            any(
+                action["kind"] == "use"
+                and action["source"] == "warning"
+                and action["summary"] == "use NBR-CALLS-FLOG2-UPPER-BOUND in Goal"
+                and action["targets"] == ["NBR-CALLS-FLOG2-UPPER-BOUND", "Goal"]
+                for action in artifact["actions"]
+            )
+        )
+
+    def test_use_warnings_preserve_goal_targeting(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>
+            ACL2 Warning [Use] in ( DEFTHM PAIR-POW-LOG-IS-CORRECT ...):  It is
+            unusual to :USE the formula of an enabled :REWRITE or :DEFINITION rule,
+            so you may want to consider disabling (:REWRITE PAIR-POW-2N-2N+1) in
+            the hint provided for Subgoal *1/2.  See :DOC using-enabled-rules.
+
+            ACL2 Warning [Use] in ( DEFTHM PAIR-POW-LOG-IS-CORRECT ...):  It is
+            unusual to :USE the formula of an enabled :REWRITE or :DEFINITION rule,
+            so you may want to consider disabling (:REWRITE PAIR-POW-2N-2N+1) in
+            the hint provided for Subgoal *1/1.  See :DOC using-enabled-rules.
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM PAIR-POW-LOG-IS-CORRECT ...)
+            Rules: NIL
+            Hint-events: ((:USE PAIR-POW-2N-2N+1))
+            Warnings:  Use
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             PAIR-POW-LOG-IS-CORRECT
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "pair-pow-log-is-correct")
+        targeted_uses = {
+            tuple(action["targets"])
+            for action in artifact["actions"]
+            if action["kind"] == "use" and action["source"] == "warning"
+        }
+        self.assertEqual(
+            targeted_uses,
+            {
+                ("PAIR-POW-2N-2N+1", "Subgoal *1/2"),
+                ("PAIR-POW-2N-2N+1", "Subgoal *1/1"),
+            },
+        )
 
     def test_subsume_warnings_become_overlap_actions(self) -> None:
         transcript = dedent(
@@ -800,6 +850,9 @@ class HintBridgeParsingTests(unittest.TestCase):
             apply_general_sample = sample_dir / "apply-model-apply.lisp"
             apply_general_sample.write_text("; excerpted sample\n", encoding="utf-8")
 
+            tri_sq_sample = sample_dir / "2009-tri-sq.lisp"
+            tri_sq_sample.write_text("; excerpted sample\n", encoding="utf-8")
+
             system_root = tmp / "acl2-books"
             die_hard_book = system_root / "projects" / "die-hard-bottle-game" / "work.lisp"
             die_hard_book.parent.mkdir(parents=True)
@@ -815,6 +868,11 @@ class HintBridgeParsingTests(unittest.TestCase):
             apply_book.write_text("; canonical apply-prim book\n", encoding="utf-8")
             general_apply_book = apply_dir / "apply.lisp"
             general_apply_book.write_text("; canonical apply book\n", encoding="utf-8")
+
+            tri_sq_dir = system_root / "workshops" / "2009" / "cowles-gamboa-triangle-square" / "materials"
+            tri_sq_dir.mkdir(parents=True)
+            tri_sq_book = tri_sq_dir / "tri-sq.lisp"
+            tri_sq_book.write_text("; canonical tri-sq book\n", encoding="utf-8")
 
             die_hard_plans = bridge.resolve_load_plans(str(die_hard_sample), system_root=system_root)
             self.assertEqual(die_hard_plans[0].book, die_hard_sample.resolve())
@@ -844,6 +902,10 @@ class HintBridgeParsingTests(unittest.TestCase):
                     for plan in apply_general_plans
                 )
             )
+
+            tri_sq_plans = bridge.resolve_load_plans(str(tri_sq_sample), system_root=system_root)
+            self.assertEqual(tri_sq_plans[0].book, tri_sq_sample.resolve())
+            self.assertTrue(any(plan.book == tri_sq_book for plan in tri_sq_plans))
 
 
 if __name__ == "__main__":

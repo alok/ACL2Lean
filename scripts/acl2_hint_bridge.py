@@ -20,6 +20,7 @@ SUBGOAL_LINE_RE = re.compile(r"^Subgoal\b.+$")
 PROMPT_RE = re.compile(r"^[^()\s]+\s+!>+")
 PROMPT_PREFIX_RE = re.compile(r"^([^()\s]+\s+!>+)(.*)$")
 HINT_EVENT_RE = re.compile(r"^\(\s*:([A-Z0-9-]+)\s+(.+?)\)$", re.IGNORECASE)
+RULE_RUNE_RE = re.compile(r"^\(\s*:([A-Z0-9-]+)\s+(.+?)\s*\)$", re.IGNORECASE)
 DISABLE_HINT_RE = re.compile(
     r"consider disabling\s+(\(.*?\))\s+in the hint provided for\s+([^.]+)\.",
     re.IGNORECASE,
@@ -248,6 +249,14 @@ def fallback_plans(requested_book: str, requested_path: Path, system_root: Path 
             requested_book,
             system_root / "projects" / "die-hard-bottle-game" / "top.lisp",
             note="canonical upstream book for excerpted die-hard top-level sample",
+        )
+
+    if requested_posix.endswith("acl2_samples/2009-tri-sq.lisp"):
+        maybe_add_plan(
+            plans,
+            requested_book,
+            system_root / "workshops" / "2009" / "cowles-gamboa-triangle-square" / "materials" / "tri-sq.lisp",
+            note="canonical upstream book for excerpted 2009 triangle-square sample",
         )
 
     if requested_posix.endswith("acl2_samples/apply-model-apply-prim.lisp"):
@@ -638,6 +647,32 @@ def extract_warning_actions(warnings: list[str]) -> list[dict[str, object]]:
         if disable_match:
             rule = disable_match.group(1).strip()
             goal = disable_match.group(2).strip()
+            rune_match = RULE_RUNE_RE.match(rule)
+            if ":use" in warning_text.lower():
+                if rune_match:
+                    rule_class = rune_match.group(1).lower()
+                    rule_target = rune_match.group(2).strip()
+                    if rule_class == "rewrite":
+                        use_summary = f"use {rule_target} in {goal}"
+                        use_targets = [rule_target, goal]
+                    elif rule_class == "definition":
+                        use_summary = f"use definition {rule_target} in {goal}"
+                        use_targets = [rule_target, goal]
+                    else:
+                        use_summary = f"use {rule} in {goal}"
+                        use_targets = [rule, goal]
+                else:
+                    use_summary = f"use {rule} in {goal}"
+                    use_targets = [rule, goal]
+                actions.append(
+                    make_action(
+                        "use",
+                        "warning",
+                        use_summary,
+                        warning,
+                        targets=use_targets,
+                    )
+                )
             actions.append(
                 make_action(
                     "disable-rule",
