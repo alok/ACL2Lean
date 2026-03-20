@@ -1,6 +1,7 @@
 import Lean
 import Lean.Data.Json
 import ACL2Lean.Import
+import ACL2Lean.ImportedRegistry
 import ACL2Lean.HintBridge
 import ProofWidgets.Component.HtmlDisplay
 
@@ -374,9 +375,12 @@ private def actionNote (action : ACL2.HintBridge.DynamicAction) : String :=
     | items => " {typed-term: " ++ String.intercalate "; " items ++ "}"
   s!"action {action.source}/{action.kind}{goalTarget}: {action.summary}{targets}{theory}{clauseProcessor}{otfFlag}{inductTerm}{inductionRule}{expand}{cases}{doNotInduct}{disableRule}{disableDefinition}{warningTheorem}{freeVariable}{hypothesis}{triggerTerm}{generatedTheorem}{existingRule}{splitGoal}{splitTerms}{typedTerm}"
 
-private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
+private def dynamicNextMoves
+    (artifact : ACL2.HintBridge.DynamicArtifact)
+    (registry : ACL2.ImportedRegistry.Snapshot := {}) : List String :=
   let replayState := artifact.replayState
   let runeProfile := artifact.runeProfile
+  let resolvedUses := artifact.resolvedImportedUseLines registry
   dedupStrings <|
     (artifact.actions.map actionSummary) ++
     [ if runeProfile.simpCandidates.isEmpty then
@@ -423,8 +427,10 @@ private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List
         some "Respect ACL2's do-not-induct guidance when choosing between simplification and induction on the Lean side."
     , if replayState.useTimeline.isEmpty then
         none
-      else
+      else if resolvedUses.isEmpty then
         some "Try ACL2's concrete use timeline before broad manual lemma search."
+      else
+        some "Start replay from the resolved imported Lean theorems named by ACL2's use timeline before searching manually."
     , if replayState.splitTimeline.isEmpty then
         none
       else
@@ -439,9 +445,14 @@ private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List
         some "Treat ACL2 warning lines as replay guidance or fallback heuristics for Lean proof search."
     ].filterMap id
 
-private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
+private def dynamicNotes
+    (sourcePath : String)
+    (artifact : ACL2.HintBridge.DynamicArtifact)
+    (registry : ACL2.ImportedRegistry.Snapshot := {}) : List String :=
   let replayState := artifact.replayState
   let runeProfile := artifact.runeProfile
+  let resolvedUses :=
+    artifact.resolvedImportedUseLines registry |>.map (fun line => s!"resolved-imported-use: {line}")
   dedupStrings <|
     [ s!"Source ACL2 book: {sourcePath}"
     , s!"ACL2 loaded book: {artifact.resolved_book}"
@@ -461,6 +472,7 @@ private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.Dynam
         | none => []) ++
       runeProfile.noteLines ++
       replayState.noteLines ++
+      resolvedUses ++
       (artifact.actions.map actionNote) ++
       (artifact.actions.foldr
         (fun action acc =>
@@ -596,17 +608,19 @@ private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.Dynam
 
 def snapshotOfDynamicHints
     (sourcePath theoremName : String)
-    (artifact : ACL2.HintBridge.DynamicArtifact) : Snapshot :=
+    (artifact : ACL2.HintBridge.DynamicArtifact)
+    (registry : ACL2.ImportedRegistry.Snapshot := {}) : Snapshot :=
   let replayState := artifact.replayState
+  let resolvedImportedUses := artifact.resolvedImportedUseCount registry
   let selectedInduction := replayState.inductionSummary?.getD "none"
   let doNotInduct := replayState.doNotInductSummary?.getD "none"
   let otfFlag := replayState.otfFlag.getD "none"
   { theoremName := s!"ACL2 emitted hints for {theoremName}"
-    goal := s!"ACL2 dynamic summary:\n  {artifact.summary_form}\n\nDynamic proof context:\n  checkpoints: {artifact.checkpoints.length}\n  lifecycle progress events: {artifact.progress.length}\n  candidate actions: {artifact.actions.length}\n  theory timeline entries: {replayState.theoryTimeline.length}\n  replay use suggestions: {replayState.useTimeline.length}\n  split timeline entries: {replayState.splitTimeline.length}\n  typed-term foci: {replayState.typedTerms.length}\n  selected induction: {selectedInduction}\n  do-not-induct: {doNotInduct}\n  otf-flg: {otfFlag}\n  observations: {artifact.observations.length}\n  warnings: {artifact.warnings.length}\n  induction summaries: {artifact.inductions.length}\n  summary rules: {artifact.summary_rules.length}\n  hint-events: {artifact.hint_events.length}\n  prover steps: {artifact.prover_steps.getD 0}"
+    goal := s!"ACL2 dynamic summary:\n  {artifact.summary_form}\n\nDynamic proof context:\n  checkpoints: {artifact.checkpoints.length}\n  lifecycle progress events: {artifact.progress.length}\n  candidate actions: {artifact.actions.length}\n  theory timeline entries: {replayState.theoryTimeline.length}\n  replay use suggestions: {replayState.useTimeline.length}\n  resolved imported uses: {resolvedImportedUses}\n  split timeline entries: {replayState.splitTimeline.length}\n  typed-term foci: {replayState.typedTerms.length}\n  selected induction: {selectedInduction}\n  do-not-induct: {doNotInduct}\n  otf-flg: {otfFlag}\n  observations: {artifact.observations.length}\n  warnings: {artifact.warnings.length}\n  induction summaries: {artifact.inductions.length}\n  summary rules: {artifact.summary_rules.length}\n  hint-events: {artifact.hint_events.length}\n  prover steps: {artifact.prover_steps.getD 0}"
     checkpoints := dynamicCheckpoints artifact
     runes := dynamicRunes artifact
-    nextMoves := dynamicNextMoves artifact
-    notes := dynamicNotes sourcePath artifact
+    nextMoves := dynamicNextMoves artifact registry
+    notes := dynamicNotes sourcePath artifact registry
   }
 
 private def dynamicTheoryItemsSurfaceInRunes : Bool :=
@@ -823,6 +837,56 @@ private def dynamicStructuredPayloadsSurfaceInNotes : Bool :=
 
 #guard dynamicStructuredPayloadsSurfaceInNotes
 
+private def dynamicResolvedImportedUsesSurfaceInSnapshot : Bool :=
+  let artifact : ACL2.HintBridge.DynamicArtifact :=
+    { book := "acl2_samples/demo.lisp"
+      resolved_book := "acl2_samples/demo.lisp"
+      load_steps := ["acl2_samples/demo.lisp"]
+      load_note := ""
+      requested_theorem := "demo"
+      theorem_name := "DEMO"
+      status := "proved"
+      summary_form := "( DEFTHM DEMO ...)"
+      summary_rules := []
+      hint_events := []
+      splitter_rules := []
+      warning_kinds := []
+      summary_time := ""
+      prover_steps := none
+      actions :=
+        [ { kind := "use"
+            source := "hint-event"
+            summary := "use NBR-CALLS-FLOG2-UPPER-BOUND in Goal"
+            goal_target := some "Goal"
+            targets := ["NBR-CALLS-FLOG2-UPPER-BOUND", "Goal"]
+            detail := "Goal: (:USE NBR-CALLS-FLOG2-UPPER-BOUND)"
+          }
+        ]
+      checkpoints := []
+      progress := []
+      observations := []
+      warnings := []
+      inductions := []
+      raw_excerpt := []
+      stderr := ""
+      exit_code := 0
+    }
+  let registry : ACL2.ImportedRegistry.Snapshot :=
+    { entries :=
+        ({} : ACL2.ImportedRegistry.RegistryState).insert
+          (ACL2.ImportedRegistry.normalizeAcl2Name "NBR-CALLS-FLOG2-UPPER-BOUND")
+          [{ acl2Name := "NBR-CALLS-FLOG2-UPPER-BOUND"
+             declName := `ACL2.Imported.Log2Replay.nbr_calls_flog2_upper_bound }]
+    }
+  let snap := snapshotOfDynamicHints "acl2_samples/demo.lisp" "demo" artifact registry
+  snap.goal.contains "resolved imported uses: 1" &&
+    snap.nextMoves.any (·.contains "resolved imported Lean theorems") &&
+    snap.notes.any (fun note =>
+      let lower := note.toLower
+      lower.contains "resolved-imported-use: hint-event @ goal: nbr-calls-flog2-upper-bound -> acl2.imported.log2replay.nbr_calls_flog2_upper_bound")
+
+#guard dynamicResolvedImportedUsesSurfaceInSnapshot
+
 private def findImportedTheoremContext
     (events : List Event)
     (theoremName : String) : Except String (Symbol × TheoremInfo × List TheoryExpr) :=
@@ -845,22 +909,26 @@ private def importedSnapshotFromFile (sourcePath theoremName : String) : IO (Exc
         (findImportedTheoremContext events theoremName).map fun (name, info, theories) =>
           snapshotOfImportedTheorem sourcePath name info theories
 
-private def dynamicSnapshotFromFile (sourcePath theoremName : String) : IO (Except String Snapshot) := do
+private def dynamicSnapshotFromFile
+    (registry : ACL2.ImportedRegistry.Snapshot)
+    (sourcePath theoremName : String) : IO (Except String Snapshot) := do
   match ← ACL2.HintBridge.fetchArtifact sourcePath theoremName with
   | .error err => pure (.error err)
   | .ok artifact =>
       if artifact.status = "proved" then
-        pure (.ok (snapshotOfDynamicHints sourcePath theoremName artifact))
+        pure (.ok (snapshotOfDynamicHints sourcePath theoremName artifact registry))
       else
         pure (.error s!"ACL2 did not prove {theoremName}; status was {artifact.status}")
 
-private def dynamicSnapshotForPanel (sourcePath theoremName : String) : IO Snapshot := do
+private def dynamicSnapshotForPanel
+    (registry : ACL2.ImportedRegistry.Snapshot)
+    (sourcePath theoremName : String) : IO Snapshot := do
   match ← ACL2.HintBridge.fetchArtifact sourcePath theoremName with
   | .ok artifact =>
-      pure <| snapshotOfDynamicHints sourcePath theoremName artifact
+      pure <| snapshotOfDynamicHints sourcePath theoremName artifact registry
   | .error err =>
       pure <| snapshotOfDynamicHints sourcePath theoremName
-        (ACL2.HintBridge.unavailableArtifact sourcePath theoremName err)
+        (ACL2.HintBridge.unavailableArtifact sourcePath theoremName err) registry
 
 private def attr (name : String) (value : Json) : String × Json :=
   (name, value)
@@ -1093,8 +1161,10 @@ def elabAclHintPanel : CommandElab := fun stx => do
     | throwError "expected a string literal ACL2 book path"
   let some theoremStr := theoremStx.isStrLit?
     | throwError "expected a string literal ACL2 theorem name"
+  let registry ← liftTermElabM do
+    pure <| ACL2.ImportedRegistry.snapshot (← getEnv)
   let snap ← liftIO do
-    dynamicSnapshotForPanel pathStr theoremStr
+    dynamicSnapshotForPanel registry pathStr theoremStr
   let snapTerm ← snapshotSyntax snap
   elabCommand (← `(#html ACL2.ProofMode.render $snapTerm))
 

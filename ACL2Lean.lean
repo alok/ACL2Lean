@@ -9,6 +9,7 @@ import ACL2Lean.Workbench
 import ACL2Lean.Evaluator
 import ACL2Lean.Translator
 import ACL2Lean.Logic
+import ACL2Lean.ImportedRegistry
 import ACL2Lean.CI
 import ACL2Lean.HintBridge
 import ACL2Lean.Tactics
@@ -17,3 +18,9 @@ import ACL2Lean.PrettyPrinter
 import ACL2Lean.ProofMode
 import ACL2Lean.ProofModeDemo
 import ACL2Lean.Imported.Log2Replay
+
+namespace ACL2
+
+emit_acl2_import_snapshot compiledImportedSnapshot
+
+end ACL2

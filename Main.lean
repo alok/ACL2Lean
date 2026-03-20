@@ -39,8 +39,10 @@ private def printTheoryEvents (events : List ACL2.Event) : IO Unit := do
       for line in ACL2.TheoryExpr.renderLines 2 theoryExpr do
         IO.println line
 
-private def printDynamicHints (artifact : ACL2.HintBridge.DynamicArtifact) : IO Unit := do
-  for line in ACL2.HintBridge.renderLines artifact do
+private def printDynamicHints
+    (artifact : ACL2.HintBridge.DynamicArtifact)
+    (registry : ACL2.ImportedRegistry.Snapshot := {}) : IO Unit := do
+  for line in ACL2.HintBridge.renderLines artifact registry do
     IO.println line
 
 private def printCiRuns (runs : List ACL2.CI.RunInfo) : IO Unit := do
@@ -121,7 +123,7 @@ def main (args : List String) : IO Unit := do
   | ["hints", path, theoremName] => do
       match ← ACL2.HintBridge.fetchArtifact path theoremName with
       | .error err => IO.eprintln s!"Hint bridge error: {err}"
-      | .ok artifact => printDynamicHints artifact
+      | .ok artifact => printDynamicHints artifact ACL2.compiledImportedSnapshot
   | ["ci"] => do
       match ← ACL2.CI.fetchRuns none 5 with
       | .error err => IO.eprintln s!"CI error: {err}"

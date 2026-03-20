@@ -1,5 +1,6 @@
 import Lean
 import Lean.Data.Json
+import ACL2Lean.ImportedRegistry
 import ACL2Lean.Parser
 
 open Lean
@@ -284,6 +285,13 @@ def instanceSummary : UseTarget → String
   | .ref expr => toString expr
   | .theorem expr => s!"theorem {expr}"
 
+def lookupName? : UseTarget → Option String
+  | .ref (.atom (.symbol sym)) =>
+      some <| if sym.package = "ACL2" then sym.name else s!"{sym.package}::{sym.name}"
+  | .theorem (.atom (.symbol sym)) =>
+      some <| if sym.package = "ACL2" then sym.name else s!"{sym.package}::{sym.name}"
+  | _ => none
+
 end UseTarget
 
 namespace UsePayload
@@ -309,6 +317,9 @@ def structuredLines (payload : UsePayload) (indent : Nat := 0) : List String :=
   let bindingLines :=
     renderLabeledItems "binding" (payload.bindings.map UseInstanceBinding.summary) indent
   targetLines ++ bindingLines
+
+def lookupName? (payload : UsePayload) : Option String :=
+  payload.target.lookupName?
 
 end UsePayload
 
@@ -370,6 +381,10 @@ def useLines (action : DynamicAction) (indent : Nat := 0) : List String :=
   match action.usePayload? with
   | some payload => payload.structuredLines indent
   | none => []
+
+def useLookupName? (action : DynamicAction) : Option String := do
+  let payload ← action.usePayload?
+  payload.lookupName?
 
 def theoryExpr? (action : DynamicAction) : Option TheoryExpr := do
   if action.kind != "in-theory" then
@@ -786,6 +801,32 @@ end DynamicReplayState
 
 namespace DynamicArtifact
 
+private def resolvedImportedUseLine
+    (action : DynamicAction)
+    (acl2Name : String)
+    (declNames : List Name) : String :=
+  formatReplayEntry action.source action.goal_target
+    s!"{acl2Name} -> {String.intercalate ", " (declNames.map toString)}"
+
+def resolvedImportedUseLines
+    (artifact : DynamicArtifact)
+    (registry : ImportedRegistry.Snapshot := {}) : List String :=
+  dedupStrings <|
+    artifact.actions.foldr
+      (fun action acc =>
+        match action.useLookupName? with
+        | some acl2Name =>
+            match ImportedRegistry.resolve registry acl2Name with
+            | [] => acc
+            | declNames => resolvedImportedUseLine action acl2Name declNames :: acc
+        | none => acc)
+      []
+
+def resolvedImportedUseCount
+    (artifact : DynamicArtifact)
+    (registry : ImportedRegistry.Snapshot := {}) : Nat :=
+  (artifact.resolvedImportedUseLines registry).length
+
 private def theoryGuidanceOf : TheoryExpr → TheoryGuidance
   | .enable items => { enables := items.map toString }
   | .disable items => { disables := items.map toString }
@@ -1059,7 +1100,9 @@ private def renderActions (actions : List DynamicAction) : List String :=
         (fun action acc => renderActionLines action ++ acc)
         []
 
-def renderLines (artifact : DynamicArtifact) : List String :=
+def renderLines
+    (artifact : DynamicArtifact)
+    (registry : ImportedRegistry.Snapshot := {}) : List String :=
   let replayState := artifact.replayState
   let runeProfile := artifact.runeProfile
   let header :=
@@ -1102,6 +1145,8 @@ def renderLines (artifact : DynamicArtifact) : List String :=
   let actions := renderActions artifact.actions
   let runes := renderRuneProfile runeProfile
   let replay := renderReplayState replayState
+  let resolvedUses :=
+    renderBlockSection "resolved-imported-uses:" (artifact.resolvedImportedUseLines registry)
   let observations := renderBlockSection "observations:" artifact.observations
   let warnings := renderBlockSection "warnings:" artifact.warnings
   let inductions := renderBlockSection "inductions:" artifact.inductions
@@ -1127,7 +1172,7 @@ def renderLines (artifact : DynamicArtifact) : List String :=
             , s!"    {entry.text.replace "\n" "\n    "}"
             ] ++ acc)
           []
-  header ++ loadNote ++ loadSteps ++ summary ++ summaryRules ++ hintEvents ++ splitterRules ++ warningKinds ++ summaryTime ++ proverSteps ++ actions ++ runes ++ replay ++ observations ++ warnings ++ inductions ++ progress ++ checkpoints
+  header ++ loadNote ++ loadSteps ++ summary ++ summaryRules ++ hintEvents ++ splitterRules ++ warningKinds ++ summaryTime ++ proverSteps ++ actions ++ runes ++ replay ++ resolvedUses ++ observations ++ warnings ++ inductions ++ progress ++ checkpoints
 
 private def dynamicExpandPayloadParses : Bool :=
   let action : DynamicAction :=
@@ -1447,6 +1492,55 @@ private def dynamicSummaryRulesRenderStructured : Bool :=
     (renderLines artifact).any (·.contains "fake-rune-for-linear NIL")
 
 #guard dynamicSummaryRulesRenderStructured
+
+private def dynamicResolvedImportedUsesRender : Bool :=
+  let artifact : DynamicArtifact :=
+    { book := "acl2_samples/demo.lisp"
+      resolved_book := "acl2_samples/demo.lisp"
+      load_steps := ["acl2_samples/demo.lisp"]
+      load_note := ""
+      requested_theorem := "demo"
+      theorem_name := "DEMO"
+      status := "proved"
+      summary_form := "( DEFTHM DEMO ...)"
+      summary_rules := []
+      hint_events := []
+      splitter_rules := []
+      warning_kinds := []
+      summary_time := ""
+      prover_steps := none
+      actions :=
+        [ { kind := "use"
+            source := "hint-event"
+            summary := "use NBR-CALLS-FLOG2-UPPER-BOUND in Goal"
+            goal_target := some "Goal"
+            targets := ["NBR-CALLS-FLOG2-UPPER-BOUND", "Goal"]
+            detail := "Goal: (:USE NBR-CALLS-FLOG2-UPPER-BOUND)"
+          }
+        ]
+      checkpoints := []
+      progress := []
+      observations := []
+      warnings := []
+      inductions := []
+      raw_excerpt := []
+      stderr := ""
+      exit_code := 0
+    }
+  let registry : ImportedRegistry.Snapshot :=
+    { entries :=
+        ({} : ImportedRegistry.RegistryState).insert
+          (ImportedRegistry.normalizeAcl2Name "NBR-CALLS-FLOG2-UPPER-BOUND")
+          [{ acl2Name := "NBR-CALLS-FLOG2-UPPER-BOUND"
+             declName := `ACL2.Imported.Log2Replay.nbr_calls_flog2_upper_bound }]
+    }
+  let lines := renderLines artifact registry
+  lines.any (·.contains "resolved-imported-uses:") &&
+    lines.any (fun line =>
+      let lower := line.toLower
+      lower.contains "nbr-calls-flog2-upper-bound -> acl2.imported.log2replay.nbr_calls_flog2_upper_bound")
+
+#guard dynamicResolvedImportedUsesRender
 
 private def dynamicRuneProfileSummarizesRulesAndTheory : Bool :=
   let artifact : DynamicArtifact :=

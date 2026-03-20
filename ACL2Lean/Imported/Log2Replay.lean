@@ -1,4 +1,5 @@
 import ACL2Lean.Logic
+import ACL2Lean.ImportedRegistry
 
 open ACL2 ACL2.Logic
 
@@ -302,6 +303,8 @@ theorem natp_clog2 (n : SExpr) :
       | _ =>
           simp [Logic.implies, Logic.integerp]
 
+acl2_imported "natp-clog2" natp_clog2
+
 /--
 Reconstruction of ACL2 theorem `posp-clog2` from
 `acl2_samples/2009-log2.lisp`.
@@ -340,6 +343,8 @@ theorem posp_clog2 (n : SExpr) :
               simp [Logic.implies, Logic.integerp]
       | _ =>
           simp [Logic.implies, Logic.integerp]
+
+acl2_imported "posp-clog2" posp_clog2
 
 /--
 Reconstruction of ACL2 theorem `clog2-is-correct-lower` from
@@ -404,6 +409,8 @@ theorem clog2_is_correct_lower (n : SExpr) :
       | _ =>
           simp [Logic.implies, Logic.posp]
 
+acl2_imported "clog2-is-correct-lower" clog2_is_correct_lower
+
 /--
 Reconstruction of ACL2 theorem `clog2-is-correct-upper` from
 `acl2_samples/2009-log2.lisp`.
@@ -459,6 +466,8 @@ theorem clog2_is_correct_upper (n : SExpr) :
               simp [Logic.implies, Logic.natp]
       | _ =>
           simp [Logic.implies, Logic.natp]
+
+acl2_imported "clog2-is-correct-upper" clog2_is_correct_upper
 
 /--
 Reconstruction of ACL2 theorem `clog2-is-correct` from
@@ -556,6 +565,8 @@ theorem clog2_is_correct (n : SExpr) :
       | _ =>
           simp [Logic.implies, Logic.posp]
 
+acl2_imported "clog2-is-correct" clog2_is_correct
+
 /--
 Reconstruction of ACL2 theorem `nbr-calls-clog2=1+clog2` from
 `acl2_samples/2009-log2.lisp`.
@@ -602,6 +613,8 @@ theorem nbr_calls_clog2_eq_1_plus_clog2 (n : SExpr) :
       | _ =>
           simp [Logic.implies, Logic.posp]
 
+acl2_imported "nbr-calls-clog2=1+clog2" nbr_calls_clog2_eq_1_plus_clog2
+
 /--
 Reconstruction of ACL2 theorem `nbr-calls-flog2-lower-bound` from
 `acl2_samples/2009-log2.lisp`.
@@ -645,6 +658,8 @@ theorem nbr_calls_flog2_lower_bound (n : SExpr) :
               simp [Logic.implies, Logic.posp]
       | _ =>
           simp [Logic.implies, Logic.posp]
+
+acl2_imported "nbr-calls-flog2-lower-bound" nbr_calls_flog2_lower_bound
 
 /--
 Reconstruction of ACL2 theorem `nbr-calls-flog2-upper-bound` from
@@ -739,6 +754,8 @@ theorem nbr_calls_flog2_upper_bound (n : SExpr) :
       | _ =>
           simp [Logic.and, Logic.implies, Logic.posp]
 
+acl2_imported "nbr-calls-flog2-upper-bound" nbr_calls_flog2_upper_bound
+
 /--
 Reconstruction of ACL2 theorem `nbr-calls-flog2-is-logarithmic` from
 `acl2_samples/2009-log2.lisp`.
@@ -806,6 +823,8 @@ theorem nbr_calls_flog2_is_logarithmic (n : SExpr) :
               simp [Logic.implies, Logic.posp]
       | _ =>
           simp [Logic.implies, Logic.posp]
+
+acl2_imported "nbr-calls-flog2-is-logarithmic" nbr_calls_flog2_is_logarithmic
 
 #guard clog2 (intExpr 1) = intExpr 0
 #guard clog2 (intExpr 10) = intExpr 4
