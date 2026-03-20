@@ -129,8 +129,13 @@ private def payloadExprsFromPayload (payload : String) : List SExpr :=
 
 namespace DynamicAction
 
+def nonGoalTargets (action : DynamicAction) : List String :=
+  match action.goal_target with
+  | some goal => action.targets.filter (· != goal)
+  | none => action.targets
+
 def payload? (action : DynamicAction) : Option String :=
-  action.targets.head?
+  action.nonGoalTargets.head?
 
 def payloadExpr? (action : DynamicAction) : Option SExpr := do
   let payload ← action.payload?
@@ -159,6 +164,17 @@ def theoryLines (action : DynamicAction) (indent : Nat := 0) : List String :=
   | some theoryExpr => TheoryExpr.labeledLines "theory" theoryExpr indent
   | none => []
 
+def clauseProcessorExpr? (action : DynamicAction) : Option SExpr := do
+  if action.kind != "clause-processor" then
+    none
+  else
+    action.payloadExpr?
+
+def clauseProcessorItems (action : DynamicAction) : List String :=
+  match action.clauseProcessorExpr? with
+  | some expr => [toString expr]
+  | none => []
+
 def expandExprs (action : DynamicAction) : List SExpr :=
   if action.kind = "expand" then
     action.payloadExprs
@@ -183,15 +199,41 @@ def doNotInductExpr? (action : DynamicAction) : Option SExpr := do
   else
     action.payloadExpr?
 
+def inductTermExpr? (action : DynamicAction) : Option SExpr := do
+  if action.kind != "induct" then
+    none
+  else
+    let term ← action.nonGoalTargets.head?
+    parseSingleSExpr? term
+
+def inductTermItems (action : DynamicAction) : List String :=
+  match action.inductTermExpr? with
+  | some expr => [toString expr]
+  | none => []
+
+def inductionRule? (action : DynamicAction) : Option String :=
+  if action.kind != "induct" then
+    none
+  else
+    match action.nonGoalTargets.drop 1 with
+    | rule :: _ => some rule
+    | [] => none
+
 def structuredLines (action : DynamicAction) (indent : Nat := 0) : List String :=
   match action.kind with
   | "in-theory" => action.theoryLines indent
+  | "clause-processor" => renderLabeledItems "clause-processor" action.clauseProcessorItems indent
   | "expand" => renderLabeledItems "expand" action.expandItems indent
   | "cases" => renderLabeledItems "cases" action.casesItems indent
   | "do-not-induct" =>
       match action.doNotInductExpr? with
       | some expr => renderLabeledItems "do-not-induct" [toString expr] indent
       | none => []
+  | "induct" =>
+      renderLabeledItems "induct-term" action.inductTermItems indent ++
+        (match action.inductionRule? with
+          | some rule => renderLabeledItems "induction-rule" [rule] indent
+          | none => [])
   | _ => []
 
 end DynamicAction
@@ -316,6 +358,23 @@ private def dynamicExpandPayloadParses : Bool :=
 
 #guard dynamicExpandPayloadParses
 
+private def dynamicClauseProcessorPayloadParses : Bool :=
+  let action : DynamicAction :=
+    { kind := "clause-processor"
+      source := "hint-event"
+      summary := "clause-processor FLAG::FLAG-IS-CP"
+      goal_target := none
+      targets := ["FLAG::FLAG-IS-CP"]
+      detail := "(:CLAUSE-PROCESSOR FLAG::FLAG-IS-CP)"
+    }
+  (match action.clauseProcessorExpr? with
+    | some expr => (toString expr).toLower.contains "flag-is-cp"
+    | none => false) &&
+    (action.structuredLines 2).any (fun line =>
+      line.toLower.contains "clause-processor:" && line.toLower.contains "flag-is-cp")
+
+#guard dynamicClauseProcessorPayloadParses
+
 private def dynamicDoNotInductPayloadParses : Bool :=
   let action : DynamicAction :=
     { kind := "do-not-induct"
@@ -331,6 +390,26 @@ private def dynamicDoNotInductPayloadParses : Bool :=
     (action.structuredLines 2).any (fun line => line.contains "do-not-induct:" && line.contains "T")
 
 #guard dynamicDoNotInductPayloadParses
+
+private def dynamicInductPayloadParses : Bool :=
+  let action : DynamicAction :=
+    { kind := "induct"
+      source := "induction"
+      summary := "induct on (MAKE-PROG1-INDUCTION I N) using rule MAKE-PROG1-INDUCTION"
+      goal_target := none
+      targets := ["(MAKE-PROG1-INDUCTION I N)", "MAKE-PROG1-INDUCTION"]
+      detail := "We will induct according to a scheme suggested by (MAKE-PROG1-INDUCTION I N)."
+    }
+  (match action.inductTermExpr? with
+    | some expr => (toString expr).toLower.contains "make-prog1-induction"
+    | none => false) &&
+    action.inductionRule? = some "MAKE-PROG1-INDUCTION" &&
+    (action.structuredLines 2).any (fun line =>
+      line.toLower.contains "induct-term:" && line.toLower.contains "make-prog1-induction") &&
+    (action.structuredLines 2).any (fun line =>
+      line.contains "induction-rule:" && line.contains "MAKE-PROG1-INDUCTION")
+
+#guard dynamicInductPayloadParses
 
 end HintBridge
 end ACL2

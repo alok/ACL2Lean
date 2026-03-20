@@ -979,6 +979,74 @@ class HintBridgeParsingTests(unittest.TestCase):
             )
         )
 
+    def test_transcript_echoed_clause_processor_hint_event_is_recovered(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>>
+            (DEFTHM FLAG-HELPER
+                     (IMPLIES (P X) (Q X))
+                     :HINTS (("Goal" :CLAUSE-PROCESSOR FLAG::FLAG-IS-CP)))
+
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM FLAG-HELPER ...)
+            Rules: NIL
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             FLAG-HELPER
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "flag-helper")
+        self.assertEqual(artifact["hint_events"], ["(:CLAUSE-PROCESSOR FLAG::FLAG-IS-CP)"])
+        self.assertTrue(
+            any(
+                action["kind"] == "clause-processor"
+                and action["source"] == "transcript-hint"
+                and action["summary"] == "clause-processor FLAG::FLAG-IS-CP in Goal"
+                and action["goal_target"] == "Goal"
+                and action["targets"] == ["FLAG::FLAG-IS-CP", "Goal"]
+                for action in artifact["actions"]
+            )
+        )
+
+    def test_transcript_echoed_induct_hint_event_is_recovered(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>>
+            (DEFTHM MAKE-PROG1-HELPER
+                     (IMPLIES (P I N) (Q I N))
+                     :HINTS (("Goal" :INDUCT (MAKE-PROG1-INDUCTION I N))))
+
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM MAKE-PROG1-HELPER ...)
+            Rules: NIL
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             MAKE-PROG1-HELPER
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "make-prog1-helper")
+        self.assertEqual(artifact["hint_events"], ["(:INDUCT (MAKE-PROG1-INDUCTION I N))"])
+        self.assertTrue(
+            any(
+                action["kind"] == "induct"
+                and action["source"] == "transcript-hint"
+                and action["summary"] == "induct (MAKE-PROG1-INDUCTION I N) in Goal"
+                and action["goal_target"] == "Goal"
+                and action["targets"] == ["(MAKE-PROG1-INDUCTION I N)", "Goal"]
+                for action in artifact["actions"]
+            )
+        )
+
     def test_transcript_echoed_use_lists_split_and_keep_goal_targets(self) -> None:
         transcript = dedent(
             """

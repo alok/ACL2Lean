@@ -280,6 +280,18 @@ private def actionNote (action : ACL2.HintBridge.DynamicAction) : String :=
     match action.theoryItems with
     | [] => ""
     | items => " {theory: " ++ String.intercalate "; " items ++ "}"
+  let clauseProcessor :=
+    match action.clauseProcessorItems with
+    | [] => ""
+    | items => " {clause-processor: " ++ String.intercalate "; " items ++ "}"
+  let inductTerm :=
+    match action.inductTermItems with
+    | [] => ""
+    | items => " {induct-term: " ++ String.intercalate "; " items ++ "}"
+  let inductionRule :=
+    match action.inductionRule? with
+    | some rule => " {induction-rule: " ++ rule ++ "}"
+    | none => ""
   let expand :=
     match action.expandItems with
     | [] => ""
@@ -292,7 +304,7 @@ private def actionNote (action : ACL2.HintBridge.DynamicAction) : String :=
     match action.doNotInductExpr? with
     | some expr => " {do-not-induct: " ++ toString expr ++ "}"
     | none => ""
-  s!"action {action.source}/{action.kind}{goalTarget}: {action.summary}{targets}{theory}{expand}{cases}{doNotInduct}"
+  s!"action {action.source}/{action.kind}{goalTarget}: {action.summary}{targets}{theory}{clauseProcessor}{inductTerm}{inductionRule}{expand}{cases}{doNotInduct}"
 
 private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
   dedupStrings <|
@@ -345,6 +357,20 @@ private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.Dynam
       (artifact.actions.foldr
         (fun action acc =>
           (action.theoryItems.map (fun item => s!"action-theory {action.source}/{action.kind}: {item}")) ++ acc)
+        []) ++
+      (artifact.actions.foldr
+        (fun action acc =>
+          (action.clauseProcessorItems.map (fun item => s!"action-clause-processor {action.source}/{action.kind}: {item}")) ++ acc)
+        []) ++
+      (artifact.actions.foldr
+        (fun action acc =>
+          (action.inductTermItems.map (fun item => s!"action-induct-term {action.source}/{action.kind}: {item}")) ++ acc)
+        []) ++
+      (artifact.actions.foldr
+        (fun action acc =>
+          match action.inductionRule? with
+          | some rule => s!"action-induction-rule {action.source}/{action.kind}: {rule}" :: acc
+          | none => acc)
         []) ++
       (artifact.actions.foldr
         (fun action acc =>
@@ -436,7 +462,21 @@ private def dynamicStructuredPayloadsSurfaceInNotes : Bool :=
       summary_time := ""
       prover_steps := none
       actions :=
-        [ { kind := "expand"
+        [ { kind := "clause-processor"
+            source := "hint-event"
+            summary := "clause-processor FLAG::FLAG-IS-CP"
+            goal_target := none
+            targets := ["FLAG::FLAG-IS-CP"]
+            detail := "(:CLAUSE-PROCESSOR FLAG::FLAG-IS-CP)"
+          }
+        , { kind := "induct"
+            source := "induction"
+            summary := "induct on (MAKE-PROG1-INDUCTION I N) using rule MAKE-PROG1-INDUCTION"
+            goal_target := none
+            targets := ["(MAKE-PROG1-INDUCTION I N)", "MAKE-PROG1-INDUCTION"]
+            detail := "We will induct according to a scheme suggested by (MAKE-PROG1-INDUCTION I N)."
+          }
+        , { kind := "expand"
             source := "transcript-hint"
             summary := "expand ((EV$ X A)) in Goal"
             goal_target := some "Goal"
@@ -461,7 +501,10 @@ private def dynamicStructuredPayloadsSurfaceInNotes : Bool :=
       exit_code := 0
     }
   let notes := (snapshotOfDynamicHints "acl2_samples/demo.lisp" "demo" artifact).notes
-  notes.any (fun note => note.contains "action-expand transcript-hint/expand:" && note.contains "ev$") &&
+  notes.any (fun note => note.contains "action-clause-processor hint-event/clause-processor:" && note.toLower.contains "flag-is-cp") &&
+    notes.any (fun note => note.contains "action-induct-term induction/induct:" && note.toLower.contains "make-prog1-induction") &&
+    notes.any (fun note => note.contains "action-induction-rule induction/induct: MAKE-PROG1-INDUCTION") &&
+    notes.any (fun note => note.contains "action-expand transcript-hint/expand:" && note.contains "ev$") &&
     notes.any (fun note => note.contains "action-do-not-induct transcript-hint/do-not-induct:" && note.contains "T")
 
 #guard dynamicStructuredPayloadsSurfaceInNotes
