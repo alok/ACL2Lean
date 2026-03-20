@@ -1309,3 +1309,45 @@ Next best ideas:
 1. execute the interpreted replay state against Lean goals, starting with checkpoint-local split guidance, theory disables, and simple theorem/instance `use` steps
 2. use the new split timeline and typed-term focus to group proof-mode next moves by checkpoint instead of listing all ACL2 suggestions flatly
 3. decide whether the dynamic hint bridge from ACL2 extraction through replay-state normalization is now coherent enough for a single `main` promotion batch
+
+## 2026-03-20 Iteration 34
+
+Completed this iteration:
+
+- added a Lean-side `SummaryRule` parser in `ACL2Lean.HintBridge`, so dynamic ACL2 `Rules:` summary entries like `(:REWRITE ...)`, `(:DEFINITION ...)`, `(:TYPE-PRESCRIPTION ...)`, and fake-rune markers no longer stay trapped as opaque strings once they cross back into Lean
+- taught `DynamicArtifact` to normalize those summary rules into structured rule-kind/target summaries and updated `acl2lean hints` to print the normalized form on real theorem-local artifacts
+- updated `ACL2Lean.ProofMode.dynamicRunes` so the infoview rune pane now carries explicit `summary-rule ...` entries instead of raw ACL2 s-expressions, which is a better bridge toward later Lean-side simp/grind configuration
+- added Lean guard coverage for summary-rule parsing and proof-mode rune surfacing, and documented the new oracle surface in `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md`
+- tracked the slice in Linear as `ALOK-574`
+
+Verification:
+
+- research branch commit `ff8dd19`: `lean-lsp-mcp` diagnostics on `ACL2Lean/HintBridge.lean`
+- research branch commit `ff8dd19`: `lean-lsp-mcp` diagnostics on `ACL2Lean/ProofMode.lean`
+- research branch commit `ff8dd19`: `lake build ACL2Lean.HintBridge ACL2Lean.ProofMode Main`
+- research branch commit `ff8dd19`: `lake build acl2lean`
+- research branch commit `ff8dd19`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-log2.lisp nbr-calls-flog2-is-logarithmic | sed -n '1,24p'`
+- research branch commit `ff8dd19`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp 'mod-+-*-floor-gcd' | sed -n '1,24p'`
+- research branch commit `ff8dd19`: `./.lake/build/bin/acl2lean hints acl2_samples/apply-model-apply.lisp 'ev$-def-fact' | sed -n '1,24p'`
+- research branch commit `ff8dd19`: `lake build`
+- research branch commit `ff8dd19`: `uv run python Verify.py`
+- pushed research branch commit `ff8dd19` to `origin/autoresearch/mar19-acl2lean`
+- research branch commit `ff8dd19`: `lake exe acl2lean ci autoresearch/mar19-acl2lean` reported fresh GitHub Actions run `23335463332` in progress
+- `gh run watch 23335463332 --exit-status` succeeded for GitHub Actions run `23335463332`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- this closes another display-only gap in the hint-generator path: ACL2’s own `Rules:` summary is now parsed back into Lean structure instead of being stranded as raw text
+- real `2009-log2`, `die-hard`, and `apply-model` outputs now show normalized summary rules such as `rewrite nbr-calls-flog2-upper-bound`, `definition floor`, and `elim car-cdr-elim`, which is a cleaner substrate for future rune-set / simp-set mapping
+- I did not promote this slice to `main` yet because it still deepens the research-branch dynamic proof-mode stack; the cleaner promotion boundary remains a coherent batch that starts using these normalized oracle artifacts for checked replay
+
+Next best ideas:
+
+1. fold the normalized summary rules into replay-state or a dedicated active-rune model instead of leaving them only in CLI/proof-mode display surfaces
+2. use the parsed summary-rule kinds plus the existing theory timeline to infer which ACL2 rune classes should map to Lean simp lemmas versus grind hints
+3. start executing the now-structured oracle data against Lean goals, beginning with simple `use`, theory-disable, and splitter-guided replay steps
