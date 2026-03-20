@@ -18,6 +18,7 @@ import ACL2Lean.PrettyPrinter
 import ACL2Lean.ProofMode
 import ACL2Lean.ProofModeDemo
 import ACL2Lean.Imported.Log2Replay
+import ACL2Lean.Imported.TriSqReplay
 
 namespace ACL2
 
