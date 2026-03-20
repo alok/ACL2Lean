@@ -123,3 +123,40 @@ Next best ideas:
 1. parse `:instructions`, `:cases`, and richer nested theory expressions into structured metadata instead of only preserving them as raw extra options
 2. extend static recovery beyond direct quasiquote skeletons to dynamic-but-still-inspectable `make-event` result shapes such as `value` / `er-progn` branches
 3. feed the recovered theorem metadata into `ACL2Lean.ProofMode` so imported books drive the infoview panel instead of the current demo snapshot
+
+## 2026-03-19 Iteration 4
+
+Completed this iteration:
+
+- added a structured `ProofInstruction` tree to theorem metadata import so ACL2 `:instructions` are no longer opaque extra options
+- taught the importer to recognize nested proof-builder blocks like `quiet!` / `:repeat` while keeping command arguments available for later replay
+- added reusable rendering helpers so `acl2lean metadata` and translated Lean theorem comments now show proof-builder structure for imported theorems such as `apply$-prim-meta-fn-correct`
+- added parser regression coverage for a real proof-builder script drawn from `acl2_samples/apply-model-apply-prim.lisp`
+- updated the ACL2 spec to treat structured proof-builder instructions as the next replay seam instead of just a future parsing TODO
+
+Verification:
+
+- research branch commit `b3440b8`: `lake build`
+- research branch commit `b3440b8`: `uv run python Verify.py`
+- research branch commit `b3440b8`: `./.lake/build/bin/acl2lean metadata acl2_samples/apply-model-apply-prim.lisp 'apply$-prim-meta-fn-correct'`
+- research branch commit `b3440b8`: `./.lake/build/bin/acl2lean translate acl2_samples/apply-model-apply-prim.lisp | sed -n '48,95p'`
+- promoted the stable code slice to `main` as `bcfb1a4`
+- on `main`, a stale read-only `.lake` artifact from the older toolchain broke the first build; after `lake clean`, `lake build` passed
+- on `main`, `uv run python Verify.py` passed after rebuilding
+- on `main`, `./.lake/build/bin/acl2lean metadata acl2_samples/apply-model-apply-prim.lisp 'apply$-prim-meta-fn-correct'` passed and showed the imported proof-builder structure
+
+Outcome:
+
+- keep
+- promoted to `main`
+
+Notes:
+
+- the promoted `main` slice excluded `docs/acl-proof-mode.md` because `main` currently does not carry the proof-mode files that exist on the research branch
+- this is the first imported ACL2 proof artifact in the repo that is closer to replay than presentation: the metadata path now preserves a navigable script skeleton instead of a raw s-expression blob
+
+Next best ideas:
+
+1. interpret the imported `ProofInstruction` tree for a tiny replay prototype, starting with `quiet!`, `:bash`, `:in-theory`, and `:repeat :prove`
+2. parse additional hint metadata such as `:cases` and more nested theory combinators so more ACL2 books import replay-relevant structure cleanly
+3. feed the imported instruction tree into `ACL2Lean.ProofMode` so the infoview can show real theorem steps rather than the current demo snapshot
