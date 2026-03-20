@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from textwrap import dedent
 import unittest
 
@@ -130,6 +132,60 @@ class HintBridgeParsingTests(unittest.TestCase):
         self.assertEqual(artifact["checkpoints"][0]["label"], "Goal'")
         self.assertEqual(len(artifact["inductions"]), 1)
         self.assertIn(":induction rule CLOG2", artifact["inductions"][0])
+
+    def test_load_failure_is_reported(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>
+            ACL2 Error in IN-PACKAGE:  The argument to IN-PACKAGE must be a known
+            package name, but "MODAPP" is not.
+            ******** FAILED ********
+            ACL2 !>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "apply$-prim-meta-fn-correct")
+        self.assertEqual(artifact["status"], "failed")
+        self.assertIn("IN-PACKAGE", artifact["summary_form"])
+        self.assertTrue(artifact["raw_excerpt"])
+
+    def test_resolve_load_plans_for_excerpted_samples(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            repo_root = tmp / "repo"
+            sample_dir = repo_root / "acl2_samples"
+            sample_dir.mkdir(parents=True)
+
+            die_hard_sample = sample_dir / "die-hard-work.lisp"
+            die_hard_sample.write_text("; excerpted sample\n", encoding="utf-8")
+
+            apply_sample = sample_dir / "apply-model-apply-prim.lisp"
+            apply_sample.write_text("; excerpted sample\n", encoding="utf-8")
+
+            system_root = tmp / "acl2-books"
+            die_hard_book = system_root / "projects" / "die-hard-bottle-game" / "work.lisp"
+            die_hard_book.parent.mkdir(parents=True)
+            die_hard_book.write_text("; canonical work book\n", encoding="utf-8")
+
+            apply_dir = system_root / "projects" / "apply-model"
+            apply_dir.mkdir(parents=True)
+            portcullis = apply_dir / "portcullis.acl2"
+            portcullis.write_text("; portcullis\n", encoding="utf-8")
+            apply_book = apply_dir / "apply-prim.lisp"
+            apply_book.write_text("; canonical apply-prim book\n", encoding="utf-8")
+
+            die_hard_plans = bridge.resolve_load_plans(str(die_hard_sample), system_root=system_root)
+            self.assertEqual(die_hard_plans[0].book, die_hard_sample.resolve())
+            self.assertTrue(any(plan.book == die_hard_book for plan in die_hard_plans))
+
+            apply_plans = bridge.resolve_load_plans(str(apply_sample), system_root=system_root)
+            self.assertTrue(
+                any(
+                    plan.book == apply_sample.resolve() and plan.preludes == (portcullis,)
+                    for plan in apply_plans
+                )
+            )
+            self.assertTrue(any(plan.book == apply_book for plan in apply_plans))
 
 
 if __name__ == "__main__":

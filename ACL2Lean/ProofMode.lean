@@ -213,10 +213,16 @@ private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List
 private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
   dedupStrings <|
     [ s!"Source ACL2 book: {sourcePath}"
+    , s!"ACL2 loaded book: {artifact.resolved_book}"
     , s!"Requested theorem: {artifact.requested_theorem}"
     , s!"ACL2 matched theorem: {artifact.theorem_name}"
     , s!"Extraction status: {artifact.status}"
     ] ++
+      (if artifact.load_note.isEmpty then [] else [s!"Load plan: {artifact.load_note}"]) ++
+      (if artifact.load_steps.length ≤ 1 then
+        []
+      else
+        [s!"ACL2 load steps: {String.intercalate " -> " artifact.load_steps}"]) ++
       (if artifact.summary_time.isEmpty then [] else [s!"ACL2 summary time: {artifact.summary_time}"]) ++
       (match artifact.prover_steps with
         | some steps => [s!"ACL2 prover steps: {steps}"]

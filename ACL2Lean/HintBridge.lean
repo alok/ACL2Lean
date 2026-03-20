@@ -13,6 +13,9 @@ structure DynamicCheckpoint where
 
 structure DynamicArtifact where
   book : String
+  resolved_book : String
+  load_steps : List String
+  load_note : String
   requested_theorem : String
   theorem_name : String
   status : String
@@ -34,6 +37,9 @@ structure DynamicArtifact where
 
 def unavailableArtifact (book theoremName reason : String) : DynamicArtifact :=
   { book := book
+    resolved_book := book
+    load_steps := [book]
+    load_note := ""
     requested_theorem := theoremName
     theorem_name := theoremName
     status := "unavailable"
@@ -60,8 +66,8 @@ def parseArtifact (payload : String) : Except String DynamicArtifact := do
 def fetchArtifact (book theoremName : String) : IO (Except String DynamicArtifact) := do
   let cwd ← IO.currentDir
   let out ← IO.Process.output
-    { cmd := "python3"
-      args := #["scripts/acl2_hint_bridge.py", "--book", book, "--theorem", theoremName]
+    { cmd := "uv"
+      args := #["run", "python", "scripts/acl2_hint_bridge.py", "--book", book, "--theorem", theoremName]
       cwd := some cwd
     } none
   if out.exitCode != 0 then
@@ -87,9 +93,19 @@ private def renderSimpleSection (title : String) (items : List String) : List St
 def renderLines (artifact : DynamicArtifact) : List String :=
   let header :=
     [ s!"book: {artifact.book}"
+    , if artifact.resolved_book = artifact.book then
+        s!"resolved-book: {artifact.resolved_book}"
+      else
+        s!"resolved-book: {artifact.resolved_book} (requested {artifact.book})"
     , s!"theorem: {artifact.theorem_name}"
     , s!"status: {artifact.status}"
     ]
+  let loadNote :=
+    if artifact.load_note.isEmpty then
+      []
+    else
+      [s!"load-note: {artifact.load_note}"]
+  let loadSteps := renderSimpleSection "load-steps:" artifact.load_steps
   let summary :=
     if artifact.summary_form.isEmpty then
       []
@@ -126,7 +142,7 @@ def renderLines (artifact : DynamicArtifact) : List String :=
             , s!"    {checkpoint.text.replace "\n" "\n    "}"
             ] ++ acc)
           []
-  header ++ summary ++ summaryRules ++ hintEvents ++ splitterRules ++ warningKinds ++ summaryTime ++ proverSteps ++ observations ++ warnings ++ inductions ++ checkpoints
+  header ++ loadNote ++ loadSteps ++ summary ++ summaryRules ++ hintEvents ++ splitterRules ++ warningKinds ++ summaryTime ++ proverSteps ++ observations ++ warnings ++ inductions ++ checkpoints
 
 end HintBridge
 end ACL2
