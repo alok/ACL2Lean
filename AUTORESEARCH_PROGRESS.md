@@ -339,3 +339,42 @@ Next best ideas:
 1. validate the new `MODAPP` load-plan path on `acl2_samples/apply-model-apply-prim.lisp` and surface dynamic artifacts for one of its generated theorems such as `n-car-cadr-caddr-etc-opener`
 2. make the sample-to-canonical-book resolution table more data-driven so excerpted samples can advertise their upstream source/prelude requirements instead of relying on Python-side hardcoded cases
 3. parse the dynamic `raw_excerpt` goal/subgoal lines into additional structured checkpoint entries so the bridge captures more of ACL2's actual proof search trace instead of only summary sections and explicit `A key checkpoint` blocks
+
+## 2026-03-19 Iteration 10
+
+Completed this iteration:
+
+- promoted lightweight ACL2 `Goal'` / `Subgoal ...` transcript lines into structured dynamic checkpoints instead of leaving them trapped inside `raw_excerpt`
+- extended the Lean-side `DynamicCheckpoint` schema and proof-mode rendering so dynamic hint panels now distinguish explicit ACL2 key checkpoints from raw goal/subgoal progress markers
+- added parser coverage for raw goal/subgoal extraction and expanded the existing checkpoint regression to confirm explicit key checkpoints still coexist cleanly with the new raw-trace checkpoints
+- updated `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md` so the dynamic hint bridge documentation now describes the raw-trace checkpoint path
+- validated the heavier `MODAPP` load-plan path on `acl2_samples/apply-model-apply-prim.lisp` while exploring this slice, which confirmed the portcullis fallback works and exposed theorem-local scoping within large encapsulates as the next bridge issue
+
+Verification:
+
+- research branch commit `25f0904`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `25f0904`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/die-hard-work.lisp --theorem make-prog-correct`
+- research branch commit `25f0904`: `LAKE_NO_CACHE=1 lake build ACL2Lean.HintBridge ACL2Lean.ProofMode Main`
+- research branch commit `25f0904`: `lean-lsp-mcp` diagnostics on `ACL2Lean/HintBridge.lean` and `ACL2Lean/ProofMode.lean`
+- research branch commit `25f0904`: `LAKE_NO_CACHE=1 lake build acl2lean`
+- research branch commit `25f0904`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp make-prog-correct | sed -n '1,120p'`
+- research branch commit `25f0904`: `uv run python Verify.py`
+- exploratory validation during this iteration: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/apply-model-apply-prim.lisp --theorem 'n-car-cadr-caddr-etc-opener'`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- `make-prog-correct` from the die-hard path now reaches Lean with eleven structured raw-trace checkpoints (`Goal'`, `Goal''`, and the emitted `Subgoal ...` chain) even though ACL2 did not emit a full `A key checkpoint` block for that theorem
+- the targeted Lean builds and the `acl2lean` executable build passed, but a full `LAKE_NO_CACHE=1 lake build` in this environment still hit the existing toolchain artifact-cache permission failure on `ACL2Lean.ProofMode:c.o`; this remains an environment issue rather than a regression from the checkpoint changes
+- validating `n-car-cadr-caddr-etc-opener` on the `apply-model` sample showed that the new `MODAPP`/portcullis load plan succeeds, but some collected observations/warnings still span more of the enclosing encapsulate than the single target theorem, so theorem-local transcript scoping is now the main open gap on the dynamic bridge path
+- tracked this slice in Linear as `ALOK-549`
+
+Next best ideas:
+
+1. make theorem-section extraction in `scripts/acl2_hint_bridge.py` more theorem-local inside `encapsulate` / `make-event` output so dynamic observations, warnings, and inductions stop bleeding across neighboring generated theorems
+2. feed the new raw goal/subgoal checkpoint kinds into richer proof-mode UI treatment, such as separate styling or timelines for explicit ACL2 checkpoints versus lightweight trace markers
+3. replace the Python-side hardcoded sample-resolution table with data-driven upstream-source metadata so dynamic book fallback stays maintainable as the corpus grows
