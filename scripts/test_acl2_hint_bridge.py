@@ -696,8 +696,9 @@ class HintBridgeParsingTests(unittest.TestCase):
         self.assertTrue(
             any(
                 action["kind"] == "expand"
-                and action["summary"] == "expand ((EV$ X A))"
-                and action["targets"] == ["((EV$ X A))"]
+                and action["source"] == "transcript-hint"
+                and action["summary"] == "expand ((EV$ X A)) in Goal"
+                and action["targets"] == ["((EV$ X A))", "Goal"]
                 for action in artifact["actions"]
             )
         )
@@ -731,8 +732,80 @@ class HintBridgeParsingTests(unittest.TestCase):
         self.assertTrue(
             any(
                 action["kind"] == "in-theory"
-                and action["summary"] == "adjust theory (ENABLE HONS-ASSOC-EQUAL)"
-                and action["targets"] == ["(ENABLE HONS-ASSOC-EQUAL)"]
+                and action["source"] == "transcript-hint"
+                and action["summary"] == "adjust theory (ENABLE HONS-ASSOC-EQUAL) in Goal"
+                and action["targets"] == ["(ENABLE HONS-ASSOC-EQUAL)", "Goal"]
+                for action in artifact["actions"]
+            )
+        )
+
+    def test_transcript_echoed_hint_actions_preserve_goal_targets(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>>
+            (DEFTHM TARGETED-TRANSCRIPT-HINTS
+                     (IMPLIES (P X) (Q X))
+                     :HINTS (("Goal" :USE BASE-LEMMA)
+                             ("Goal'''" :EXPAND (FOO X))
+                             ("Subgoal 2" :IN-THEORY (ENABLE BAR)
+                                           :DO-NOT-INDUCT T)))
+
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM TARGETED-TRANSCRIPT-HINTS ...)
+            Rules: NIL
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             TARGETED-TRANSCRIPT-HINTS
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "targeted-transcript-hints")
+        self.assertEqual(
+            artifact["hint_events"],
+            [
+                "(:USE BASE-LEMMA)",
+                "(:EXPAND (FOO X))",
+                "(:IN-THEORY (ENABLE BAR))",
+                "(:DO-NOT-INDUCT T)",
+            ],
+        )
+        self.assertTrue(
+            any(
+                action["kind"] == "use"
+                and action["source"] == "transcript-hint"
+                and action["summary"] == "use BASE-LEMMA in Goal"
+                and action["targets"] == ["BASE-LEMMA", "Goal"]
+                for action in artifact["actions"]
+            )
+        )
+        self.assertTrue(
+            any(
+                action["kind"] == "expand"
+                and action["source"] == "transcript-hint"
+                and action["summary"] == "expand (FOO X) in Goal'''"
+                and action["targets"] == ["(FOO X)", "Goal'''"]
+                for action in artifact["actions"]
+            )
+        )
+        self.assertTrue(
+            any(
+                action["kind"] == "in-theory"
+                and action["source"] == "transcript-hint"
+                and action["summary"] == "adjust theory (ENABLE BAR) in Subgoal 2"
+                and action["targets"] == ["(ENABLE BAR)", "Subgoal 2"]
+                for action in artifact["actions"]
+            )
+        )
+        self.assertTrue(
+            any(
+                action["kind"] == "do-not-induct"
+                and action["source"] == "transcript-hint"
+                and action["summary"] == "do-not-induct T in Subgoal 2"
+                and action["targets"] == ["T", "Subgoal 2"]
                 for action in artifact["actions"]
             )
         )

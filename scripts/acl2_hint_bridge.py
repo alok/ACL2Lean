@@ -94,6 +94,18 @@ def dedup_strings(items: list[str]) -> list[str]:
     return deduped
 
 
+def dedup_goal_events(items: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    deduped: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for goal, event in items:
+        key = (inline_text(goal), inline_text(event))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append((goal, event))
+    return deduped
+
+
 def normalize_transcript_lines(lines: list[str]) -> list[str]:
     normalized: list[str] = []
     for raw_line in lines:
@@ -576,6 +588,17 @@ def defthm_option_value(form_text: str, theorem_name: str, option_name: str) -> 
 
 
 def transcript_hint_events(lines: list[str], theorem_name: str) -> list[str]:
+    return [event for _, event in transcript_goal_hint_events(lines, theorem_name)]
+
+
+def render_goal_target(goal_expr: str) -> str:
+    goal = goal_expr.strip()
+    if len(goal) >= 2 and goal[0] == '"' and goal[-1] == '"':
+        return goal[1:-1].replace('\\"', '"')
+    return inline_text(goal)
+
+
+def transcript_goal_hint_events(lines: list[str], theorem_name: str) -> list[tuple[str, str]]:
     form_text = collect_transcript_form(lines)
     if form_text is None:
         return []
@@ -584,12 +607,16 @@ def transcript_hint_events(lines: list[str], theorem_name: str) -> list[str]:
     if hints_value is None:
         return []
 
-    events: list[str] = []
+    events: list[tuple[str, str]] = []
     for goal_hint in split_top_level_entries(hints_value):
         entries = split_top_level_entries(goal_hint)
         if not entries:
             continue
-        start_idx = 0 if entries[0].startswith(":") else 1
+        goal_target = ""
+        start_idx = 0
+        if not entries[0].startswith(":"):
+            goal_target = render_goal_target(entries[0])
+            start_idx = 1
         idx = start_idx
         while idx + 1 < len(entries):
             option = entries[idx]
@@ -597,27 +624,62 @@ def transcript_hint_events(lines: list[str], theorem_name: str) -> list[str]:
                 idx += 1
                 continue
             payload = entries[idx + 1]
-            events.append(f"({option.upper()} {payload})")
+            events.append((goal_target, f"({option.upper()} {payload})"))
             idx += 2
-    return dedup_strings(events)
+    return dedup_goal_events(events)
 
 
-def parse_hint_event_action(event: str) -> dict[str, object]:
+def parse_hint_event_action(
+    event: str,
+    *,
+    goal_target: str = "",
+    source: str = "hint-event",
+) -> dict[str, object]:
     event_text = inline_text(event)
     match = HINT_EVENT_RE.match(event_text)
     if match is None:
-        return make_action("hint-event", "hint-event", event_text, event)
+        summary = event_text if not goal_target else f"{event_text} in {goal_target}"
+        targets = [] if not goal_target else [goal_target]
+        detail = event if not goal_target else f"{goal_target}: {event}"
+        return make_action("hint-event", source, summary, detail, targets=targets)
 
     keyword = match.group(1).lower()
     payload = inline_text(match.group(2))
     targets = [payload] if payload else []
+    if goal_target:
+        targets.append(goal_target)
+    detail = event if not goal_target else f"{goal_target}: {event}"
+
+    def with_goal(summary: str) -> str:
+        if goal_target:
+            return f"{summary} in {goal_target}"
+        return summary
+
     if keyword == "use":
-        return make_action("use", "hint-event", f"use {payload}", event, targets=targets)
+        return make_action("use", source, with_goal(f"use {payload}"), detail, targets=targets)
     if keyword == "in-theory":
-        return make_action("in-theory", "hint-event", f"adjust theory {payload}", event, targets=targets)
+        return make_action(
+            "in-theory",
+            source,
+            with_goal(f"adjust theory {payload}"),
+            detail,
+            targets=targets,
+        )
     if keyword == "cases":
-        return make_action("cases", "hint-event", f"split cases {payload}", event, targets=targets)
-    return make_action(keyword, "hint-event", f"{keyword} {payload}".strip(), event, targets=targets)
+        return make_action(
+            "cases",
+            source,
+            with_goal(f"split cases {payload}"),
+            detail,
+            targets=targets,
+        )
+    return make_action(
+        keyword,
+        source,
+        with_goal(f"{keyword} {payload}".strip()),
+        detail,
+        targets=targets,
+    )
 
 
 def extract_observation_actions(observations: list[str]) -> list[dict[str, object]]:
@@ -793,13 +855,18 @@ def extract_induction_actions(inductions: list[str]) -> list[dict[str, object]]:
 
 
 def collect_actions(
-    hint_events: list[str],
+    summary_hint_events: list[str],
+    transcript_goal_hints: list[tuple[str, str]],
     splitter_rules: list[str],
     warnings: list[str],
     inductions: list[str],
     observations: list[str],
 ) -> list[dict[str, object]]:
-    actions = [parse_hint_event_action(event) for event in hint_events]
+    actions = [parse_hint_event_action(event) for event in summary_hint_events]
+    actions.extend(
+        parse_hint_event_action(event, goal_target=goal_target, source="transcript-hint")
+        for goal_target, event in transcript_goal_hints
+    )
     actions.extend(extract_splitter_actions(splitter_rules))
     actions.extend(extract_warning_actions(warnings))
     actions.extend(extract_induction_actions(inductions))
@@ -1053,7 +1120,10 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
     idx, theorem_name = all_matches[target_match_idx]
     excerpt = theorem_excerpt(lines, all_matches, target_match_idx)
     summary = parse_summary(excerpt, theorem_name)
-    hint_events = dedup_strings(summary["hint_events"] + transcript_hint_events(excerpt, theorem_name))
+    transcript_goal_hints = transcript_goal_hint_events(excerpt, theorem_name)
+    hint_events = dedup_strings(
+        summary["hint_events"] + [event for _, event in transcript_goal_hints]
+    )
     observations = collect_prefixed_blocks(excerpt, "ACL2 Observation")
     warnings = collect_prefixed_blocks(excerpt, "ACL2 Warning")
     inductions = collect_induction_blocks(excerpt)
@@ -1072,7 +1142,8 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
         "summary_time": summary["summary_time"],
         "prover_steps": summary["prover_steps"],
         "actions": collect_actions(
-            hint_events,
+            summary["hint_events"],
+            transcript_goal_hints,
             summary["splitter_rules"],
             warnings,
             inductions,
