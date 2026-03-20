@@ -907,3 +907,39 @@ Next best ideas:
 1. start executing checkpoint-local `disable-definition`, `use`, and `in-theory` actions against Lean replay state so the newly recovered warning guidance affects checked replay instead of only display
 2. decide whether action deduplication should preserve multiple ACL2 warning provenance entries when the resulting replay action is identical, so warning counts stay faithful without reintroducing flat duplicate actions
 3. keep scanning real ACL2 books for any remaining warning families that still survive only as `warning-kinds` or raw text, especially outside the already covered `Free` / `Non-rec` / `Subsume` / `Use` families
+
+## 2026-03-19 Iteration 25
+
+Completed this iteration:
+
+- widened the dynamic `Warning [Use]` matcher so `scripts/acl2_hint_bridge.py` keeps the entire ACL2 multi-rune disable payload instead of treating `(:REWRITE A) and (:REWRITE B)` as one malformed pseudo-rule
+- added parenthesized-form extraction for ACL2 warning payloads and split combined `Warning [Use]` advice into one warning-derived `use` action plus one `disable-rule` action per cited rune
+- added a focused regression for the real `2009-tri-sq` multi-rule warning shape and confirmed that 11 affected theorems now emit clean per-rule actions instead of summaries like `use LEMMA-5-A) and (:REWRITE LEMMA-5-C in Goal`
+- tracked this slice in Linear as `ALOK-564`
+
+Verification:
+
+- research branch commit `52c6694`: `PYTHONPATH=scripts uv run python -m unittest scripts.test_acl2_hint_bridge.HintBridgeParsingTests.test_use_warning_with_multiple_rules_splits_actions`
+- research branch commit `52c6694`: `PYTHONPATH=scripts uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `52c6694`: `lake build`
+- research branch commit `52c6694`: `uv run python Verify.py`
+- research branch commit `52c6694`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-tri-sq.lisp Lemma-5-d | rg -n 'use LEMMA-5-A in Goal|use LEMMA-5-C in Goal|disable \\(:REWRITE LEMMA-5-A\\) in Goal|disable \\(:REWRITE LEMMA-5-C\\) in Goal'`
+- pushed research branch commit `52c6694` to `origin/autoresearch/mar19-acl2lean`
+- `gh run watch 23330954514 --exit-status` succeeded for GitHub Actions run `23330954514`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- the affected `2009-tri-sq` theorems now include `Exists-pair-pow-Find-smallest-y`, `Find-smallest-y->-2`, `Lemma-5-d`, `Lemma-2-h`, `Theorem-2`, and six similar theorems that previously surfaced malformed combined `use` summaries from ACL2's multi-rune warning text
+- this is a real hint-generator-path advance because ACL2 warning lines that mention multiple enabled runes are now replayable one rune at a time, which is the same granularity the later Lean executor will need for `use` and theory-adjustment scheduling
+- I did not promote this slice to `main` yet because it still extends the research-branch-only dynamic hint/action workflow rather than a surface already carried on `main`
+
+Next best ideas:
+
+1. start executing checkpoint-local `use` and `disable-rule` actions against Lean replay state now that both transcript multi-item hints and warning-derived multi-rune guidance arrive one action at a time
+2. decide whether the dynamic panel should collapse duplicate guidance when the same theorem/rune arrives from transcript hints and warnings, while still preserving ACL2 provenance somewhere in notes
+3. keep scanning real ACL2 transcripts for any remaining theorem-local guidance that still degrades into display-only strings despite the action extractor improvements
