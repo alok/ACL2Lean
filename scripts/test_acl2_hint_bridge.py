@@ -262,6 +262,14 @@ class HintBridgeParsingTests(unittest.TestCase):
         artifact = bridge.theorem_section(transcript, "natp-clog2")
         self.assertEqual(len(artifact["observations"]), 1)
         self.assertIn(":TYPED-TERM", artifact["observations"][0])
+        self.assertTrue(
+            any(
+                action["kind"] == "typed-term"
+                and action["summary"] == "focus on typed term (CLOG2 N)"
+                and action["targets"] == ["(CLOG2 N)"]
+                for action in artifact["actions"]
+            )
+        )
         self.assertEqual(len(artifact["checkpoints"]), 2)
         self.assertEqual(artifact["checkpoints"][0]["kind"], "key-checkpoint")
         self.assertEqual(artifact["checkpoints"][0]["label"], "Goal'")
@@ -269,6 +277,7 @@ class HintBridgeParsingTests(unittest.TestCase):
         self.assertEqual(artifact["checkpoints"][1]["label"], "Subgoal *1/8")
         self.assertEqual(len(artifact["inductions"]), 1)
         self.assertIn(":induction rule CLOG2", artifact["inductions"][0])
+        self.assertIn("eight nontautological subgoals.", artifact["inductions"][0])
         self.assertTrue(
             any(
                 action["kind"] == "induct"

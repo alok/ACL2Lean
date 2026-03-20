@@ -36,6 +36,10 @@ INDUCTION_TERM_RE = re.compile(
     re.IGNORECASE,
 )
 INDUCTION_RULE_RE = re.compile(r":induction rule\s+([^\s.]+)", re.IGNORECASE)
+TYPED_TERM_RE = re.compile(
+    r"Our heuristics choose\s+(.+?)\s+as the\s+:TYPED-TERM\.",
+    re.IGNORECASE,
+)
 NONREC_WARNING_RE = re.compile(
     r":REWRITE rule generated from\s+([^\s]+)\s+will be triggered only by terms containing\s+"
     r"the function symbol\s+([^\s,]+)",
@@ -376,8 +380,6 @@ def collect_induction_blocks(lines: list[str]) -> list[str]:
                 if line.startswith("Subgoal ") or line.startswith("*1 is COMPLETED!") or line.startswith("Q.E.D."):
                     break
                 block.append(line)
-                if line.startswith("When applied to the goal at hand"):
-                    break
                 j += 1
             blocks.append("\n".join(block).strip())
             i = j
@@ -401,6 +403,25 @@ def parse_hint_event_action(event: str) -> dict[str, object]:
     if keyword == "cases":
         return make_action("cases", "hint-event", f"split cases {payload}", event, targets=targets)
     return make_action(keyword, "hint-event", f"{keyword} {payload}".strip(), event, targets=targets)
+
+
+def extract_observation_actions(observations: list[str]) -> list[dict[str, object]]:
+    actions: list[dict[str, object]] = []
+    for observation in observations:
+        observation_text = inline_text(observation)
+        typed_term_match = TYPED_TERM_RE.search(observation_text)
+        if typed_term_match:
+            term = typed_term_match.group(1).strip()
+            actions.append(
+                make_action(
+                    "typed-term",
+                    "observation",
+                    f"focus on typed term {term}",
+                    observation,
+                    targets=[term],
+                )
+            )
+    return actions
 
 
 def extract_warning_actions(warnings: list[str]) -> list[dict[str, object]]:
@@ -510,11 +531,13 @@ def collect_actions(
     splitter_rules: list[str],
     warnings: list[str],
     inductions: list[str],
+    observations: list[str],
 ) -> list[dict[str, object]]:
     actions = [parse_hint_event_action(event) for event in hint_events]
     actions.extend(extract_splitter_actions(splitter_rules))
     actions.extend(extract_warning_actions(warnings))
     actions.extend(extract_induction_actions(inductions))
+    actions.extend(extract_observation_actions(observations))
     return dedup_actions(actions)
 
 
@@ -681,7 +704,13 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
         "warning_kinds": summary["warning_kinds"],
         "summary_time": summary["summary_time"],
         "prover_steps": summary["prover_steps"],
-        "actions": collect_actions(summary["hint_events"], summary["splitter_rules"], warnings, inductions),
+        "actions": collect_actions(
+            summary["hint_events"],
+            summary["splitter_rules"],
+            warnings,
+            inductions,
+            observations,
+        ),
         "checkpoints": (
             lambda explicit: explicit + collect_trace_checkpoints(
                 excerpt, {checkpoint["label"] for checkpoint in explicit}
