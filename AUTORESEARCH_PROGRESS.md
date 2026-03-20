@@ -302,3 +302,40 @@ Next best ideas:
 1. generalize the `Log2Replay` helper layer into reusable imported-theorem replay infrastructure so other numeric ACL2 books can reuse the same positive-integer lowering pattern
 2. use the new `clog2` correctness bundle to replay one of the remaining `nbr-calls-flog2` theorems from `acl2_samples/2009-log2.lisp`, ideally reusing imported hint metadata instead of reconstructing everything by hand
 3. extend the evaluator / `eval-in` built-in surface to support `expt` directly, so imported theorem smoke tests can execute the ACL2 bound statements themselves instead of only adjacent function calls
+
+## 2026-03-19 Iteration 9
+
+Completed this iteration:
+
+- taught `scripts/acl2_hint_bridge.py` to run theorem extraction through explicit ACL2 load plans instead of assuming `(ld <sample>)` is always valid
+- added resolution/fallback support for excerpted repo samples, including canonical upstream book fallback for `acl2_samples/die-hard-work.lisp` / `acl2_samples/die-hard-top.lisp` and upstream `MODAPP` portcullis preload support for the `apply-model` samples
+- distinguished ACL2 load failures from ordinary theorem misses in the dynamic bridge so package/include errors surface as `failed` artifacts instead of silently collapsing to `not-found`
+- extended the Lean-side `DynamicArtifact` schema, CLI rendering, and proof-mode notes to show the actual ACL2 book/load steps used by the dynamic bridge
+- added unit coverage for load-plan resolution and failure classification, and documented the excerpted-sample fallback behavior in `README.md`
+
+Verification:
+
+- research branch commit `1cbf39a`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `1cbf39a`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/die-hard-work.lisp --theorem make-prog-correct`
+- research branch commit `1cbf39a`: `lake build ACL2Lean.HintBridge ACL2Lean.ProofMode Main`
+- research branch commit `1cbf39a`: `LAKE_NO_CACHE=1 lake build`
+- research branch commit `1cbf39a`: `lake exe acl2lean hints acl2_samples/die-hard-work.lisp make-prog-correct`
+- research branch commit `1cbf39a`: `uv run python Verify.py`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- this is a real hint-generator-path advance because the ACL2 binary can now act as a usable theorem-local oracle on a previously broken excerpted sample instead of only on self-contained books like `2009-log2.lisp`
+- `make-prog-correct` from the die-hard bottle-game path now reaches Lean with real ACL2-emitted warning kinds, hint-events, prover-step counts, and the resolved upstream source path
+- a plain `lake build` initially failed in this environment because Lake could not write to the global artifact cache; rerunning with `LAKE_NO_CACHE=1` succeeded, so this was an environment/cache permission issue rather than a Lean regression
+- I also added `MODAPP`/portcullis-aware fallback plans for `apply-model` samples, but I did not wait for a full end-to-end dynamic theorem extraction from that heavier path before checkpointing this slice
+
+Next best ideas:
+
+1. validate the new `MODAPP` load-plan path on `acl2_samples/apply-model-apply-prim.lisp` and surface dynamic artifacts for one of its generated theorems such as `n-car-cadr-caddr-etc-opener`
+2. make the sample-to-canonical-book resolution table more data-driven so excerpted samples can advertise their upstream source/prelude requirements instead of relying on Python-side hardcoded cases
+3. parse the dynamic `raw_excerpt` goal/subgoal lines into additional structured checkpoint entries so the bridge captures more of ACL2's actual proof search trace instead of only summary sections and explicit `A key checkpoint` blocks
