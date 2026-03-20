@@ -43,6 +43,10 @@ private def printDynamicHints (artifact : ACL2.HintBridge.DynamicArtifact) : IO 
   for line in ACL2.HintBridge.renderLines artifact do
     IO.println line
 
+private def printCiRuns (runs : List ACL2.CI.RunInfo) : IO Unit := do
+  for line in ACL2.CI.renderLines runs do
+    IO.println line
+
 def main (args : List String) : IO Unit := do
   match args with
   | ["report"] => do
@@ -118,10 +122,19 @@ def main (args : List String) : IO Unit := do
       match ← ACL2.HintBridge.fetchArtifact path theoremName with
       | .error err => IO.eprintln s!"Hint bridge error: {err}"
       | .ok artifact => printDynamicHints artifact
+  | ["ci"] => do
+      match ← ACL2.CI.fetchRuns none 5 with
+      | .error err => IO.eprintln s!"CI error: {err}"
+      | .ok runs => printCiRuns runs
+  | ["ci", branch] => do
+      match ← ACL2.CI.fetchRuns (some branch) 5 with
+      | .error err => IO.eprintln s!"CI error: {err}"
+      | .ok runs => printCiRuns runs
   | _ => do
       IO.println "Usage:"
       IO.println "  acl2lean report"
       IO.println "  acl2lean eval \"(expr)\""
+      IO.println "  acl2lean ci [branch]"
       IO.println "  acl2lean hints file.lisp theorem-name"
       IO.println "  acl2lean metadata file.lisp [theorem]"
       IO.println "  acl2lean translate file.lisp"

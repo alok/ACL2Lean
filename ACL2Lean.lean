@@ -9,6 +9,7 @@ import ACL2Lean.Workbench
 import ACL2Lean.Evaluator
 import ACL2Lean.Translator
 import ACL2Lean.Logic
+import ACL2Lean.CI
 import ACL2Lean.HintBridge
 import ACL2Lean.Tactics
 import ACL2Lean.DSL

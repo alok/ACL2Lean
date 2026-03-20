@@ -33,6 +33,11 @@ use `linear` for meaningful milestone/task tracking, use `exa`/web research when
 are needed, and use UI/browser tooling when validating proof-mode behavior. Do not default to
 pure shell workflows if a stronger structured tool exists.
 
+Check CI as you work. Use local `lake build` as the baseline CI-equivalent, and when you push a
+meaningful checkpoint or a main-worthy promotion candidate, query GitHub Actions state with
+`lake exe acl2lean ci [branch]` or `gh run list`. Do not ignore a fresh red CI run on the current
+branch without understanding why.
+
 Do not wait for user input. Continue autonomously.
 EOF
 

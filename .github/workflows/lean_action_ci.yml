@@ -12,3 +12,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: leanprover/lean-action@v1
+      - name: Run hint bridge parser unit tests
+        run: python3 scripts/test_acl2_hint_bridge.py

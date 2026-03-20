@@ -58,8 +58,20 @@ def collect_checkpoint_blocks(lines: list[str]) -> list[dict[str, str]]:
     return blocks
 
 
-def collect_prefixed(lines: list[str], prefix: str) -> list[str]:
-    return [line.strip() for line in lines if line.startswith(prefix)]
+def collect_prefixed_blocks(lines: list[str], prefix: str) -> list[str]:
+    blocks: list[str] = []
+    i = 0
+    while i < len(lines):
+        if lines[i].startswith(prefix):
+            block = [lines[i].rstrip()]
+            j = i + 1
+            while j < len(lines) and lines[j].strip():
+                block.append(lines[j].rstrip())
+                j += 1
+            blocks.append("\n".join(block).strip())
+            i = j
+        i += 1
+    return blocks
 
 
 def collect_induction_blocks(lines: list[str]) -> list[str]:
@@ -89,6 +101,105 @@ def collect_induction_blocks(lines: list[str]) -> list[str]:
     return blocks
 
 
+def summary_field(line: str) -> tuple[str, str] | None:
+    fixed_prefixes = {
+        "Form:": "summary_form",
+        "Rules:": "summary_rules",
+        "Hint-events:": "hint_events",
+        "Warnings:": "warning_kinds",
+        "Time:": "summary_time",
+        "Prover steps counted:": "prover_steps",
+    }
+    for prefix, field in fixed_prefixes.items():
+        if line.startswith(prefix):
+            return field, line[len(prefix) :].strip()
+    if line.startswith("Splitter rules"):
+        _, _, rest = line.rpartition(":")
+        return "splitter_rules", rest.strip()
+    return None
+
+
+def normalize_summary_entries(text: str) -> list[str]:
+    stripped = text.strip()
+    if not stripped or stripped == "NIL":
+        return []
+    lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+    if not lines:
+        return []
+    first = lines[0]
+    if first.startswith("(("):
+        lines[0] = "(" + first[2:]
+    last = lines[-1]
+    if last.endswith("))"):
+        lines[-1] = last[:-2] + ")"
+    return lines
+
+
+def parse_warning_kinds(text: str) -> list[str]:
+    stripped = text.strip()
+    if not stripped:
+        return []
+    normalized = re.sub(r"\s+and\s+", ",", stripped)
+    return [part.strip() for part in normalized.split(",") if part.strip()]
+
+
+def parse_summary(lines: list[str], theorem_name: str) -> dict[str, object]:
+    summary: dict[str, object] = {
+        "summary_form": "",
+        "summary_rules": [],
+        "hint_events": [],
+        "splitter_rules": [],
+        "warning_kinds": [],
+        "summary_time": "",
+        "prover_steps": None,
+    }
+    try:
+        start = lines.index("Summary")
+    except ValueError:
+        return summary
+
+    current_field: str | None = None
+    current_lines: list[str] = []
+
+    def flush() -> None:
+        nonlocal current_field, current_lines
+        if current_field is None:
+            return
+        text = "\n".join(line.rstrip() for line in current_lines if line is not None).strip()
+        if current_field == "summary_form":
+            summary[current_field] = text
+        elif current_field in {"summary_rules", "hint_events"}:
+            summary[current_field] = normalize_summary_entries(text)
+        elif current_field == "splitter_rules":
+            summary[current_field] = [line.strip() for line in text.splitlines() if line.strip()]
+        elif current_field == "warning_kinds":
+            summary[current_field] = parse_warning_kinds(text)
+        elif current_field == "summary_time":
+            summary[current_field] = text
+        elif current_field == "prover_steps":
+            match = re.search(r"\d+", text)
+            summary[current_field] = int(match.group(0)) if match else None
+        current_field = None
+        current_lines = []
+
+    for raw_line in lines[start + 1 :]:
+        line = raw_line.rstrip()
+        if line.strip() == theorem_name or line.startswith("ACL2 !>"):
+            break
+        match = summary_field(line.strip())
+        if match:
+            flush()
+            field_name, initial = match
+            current_field = field_name
+            current_lines = [initial] if initial else []
+            continue
+        if current_field is not None:
+            current_lines.append(line)
+
+    flush()
+    return summary
+
+
 def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
     theorem_norm = normalize_name(theorem)
     matches: list[tuple[int, str]] = []
@@ -103,6 +214,12 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
             "requested_theorem": theorem,
             "theorem_name": theorem,
             "summary_form": "",
+            "summary_rules": [],
+            "hint_events": [],
+            "splitter_rules": [],
+            "warning_kinds": [],
+            "summary_time": "",
+            "prover_steps": None,
             "checkpoints": [],
             "observations": [],
             "warnings": [],
@@ -114,15 +231,22 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
     start = previous_prompt_index(lines, idx)
     end = next_prompt_index(lines, idx)
     excerpt = [line.rstrip("\n") for line in lines[start:end]]
+    summary = parse_summary(excerpt, theorem_name)
 
     return {
         "status": "proved",
         "requested_theorem": theorem,
         "theorem_name": theorem_name,
-        "summary_form": lines[idx].strip(),
+        "summary_form": summary["summary_form"] or lines[idx].strip(),
+        "summary_rules": summary["summary_rules"],
+        "hint_events": summary["hint_events"],
+        "splitter_rules": summary["splitter_rules"],
+        "warning_kinds": summary["warning_kinds"],
+        "summary_time": summary["summary_time"],
+        "prover_steps": summary["prover_steps"],
         "checkpoints": collect_checkpoint_blocks(excerpt),
-        "observations": collect_prefixed(excerpt, "ACL2 Observation"),
-        "warnings": collect_prefixed(excerpt, "ACL2 Warning"),
+        "observations": collect_prefixed_blocks(excerpt, "ACL2 Observation"),
+        "warnings": collect_prefixed_blocks(excerpt, "ACL2 Warning"),
         "inductions": collect_induction_blocks(excerpt),
         "raw_excerpt": excerpt,
     }

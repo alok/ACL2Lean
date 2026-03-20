@@ -218,6 +218,18 @@ Use these often:
 - `lake build <specific targets>`
 - `uv run python Verify.py`
 - direct ACL2 invocations for ground-truth behavior
+- `lake exe acl2lean ci [branch]` or `gh run list ...` for GitHub Actions state
+
+The current GitHub workflow is `.github/workflows/lean_action_ci.yml`.
+Treat `lake build` as the local CI-equivalent baseline, and use GitHub Actions
+status as an additional remote signal after pushes.
+
+Important:
+
+- features that invoke external tools during elaboration or demo rendering must
+  degrade gracefully when CI runners do not have ACL2 or other local tools
+  installed
+- do not make editor/demo panels a hard CI dependency on local ACL2 binaries
 
 ## Logging
 
@@ -255,8 +267,10 @@ LOOP FOREVER until externally interrupted:
 4. Run the most relevant checks.
 5. Commit if it is a real advance.
 6. Push useful checkpoints.
-7. Append concise progress and result entries.
-8. Repeat immediately.
+7. Check CI state for the branch when the push is meaningful.
+8. If promoting to `main`, check CI on `main` after the push.
+9. Append concise progress and result entries.
+10. Repeat immediately.
 
 If an iteration is bad or inconclusive, revert or discard it and keep moving.
 
