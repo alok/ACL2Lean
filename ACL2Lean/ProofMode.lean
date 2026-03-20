@@ -1,6 +1,7 @@
 import Lean
 import Lean.Data.Json
 import ACL2Lean.Import
+import ACL2Lean.HintBridge
 import ProofWidgets.Component.HtmlDisplay
 
 open Lean
@@ -145,6 +146,70 @@ def snapshotOfImportedTheorem
     notes := importedNotes sourcePath info theories
   }
 
+private def dynamicContextCheckpoint (artifact : ACL2.HintBridge.DynamicArtifact) : Checkpoint :=
+  { title := "Dynamic ACL2 hint extraction"
+    detail := s!"Recovered {artifact.checkpoints.length} key checkpoints, {artifact.observations.length} observations, {artifact.warnings.length} warnings, and {artifact.inductions.length} induction summaries from the ACL2 proof run."
+    status := if artifact.checkpoints.isEmpty then "planned" else "done" }
+
+private def dynamicCheckpointEntries : Nat → List ACL2.HintBridge.DynamicCheckpoint → List Checkpoint
+  | _, [] => []
+  | idx, checkpoint :: rest =>
+      { title := s!"Emitted checkpoint {idx + 1}"
+        detail := checkpoint.text
+        status := if idx = 0 then "active" else "planned" } ::
+        dynamicCheckpointEntries (idx + 1) rest
+
+private def dynamicCheckpoints (artifact : ACL2.HintBridge.DynamicArtifact) : List Checkpoint :=
+  let context := dynamicContextCheckpoint artifact
+  let emitted := dynamicCheckpointEntries 0 artifact.checkpoints
+  match emitted with
+  | [] =>
+      [ context
+      , { title := "Hint generation"
+          detail := "ACL2 did not emit any key checkpoints for this theorem; inspect observations, warnings, and the raw excerpt."
+          status := "active" }
+      ]
+  | checkpoints => context :: checkpoints
+
+private def dynamicRunes (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
+  dedupStrings <| artifact.observations ++ artifact.warnings ++ artifact.inductions
+
+private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
+  dedupStrings <|
+    [ if artifact.checkpoints.isEmpty then
+        some "Try a theorem with richer ACL2 proof output or adjust the ACL2 driver to emit more checkpoints."
+      else
+        some "Translate the first emitted ACL2 checkpoint into a Lean-side replay step and compare it to the current theorem goal."
+    , if artifact.inductions.isEmpty then
+        none
+      else
+        some "Map ACL2's emitted induction scheme into a Lean induction candidate instead of reconstructing it from scratch."
+    , if artifact.warnings.isEmpty then
+        none
+      else
+        some "Treat ACL2 warning lines as replay guidance or fallback heuristics for Lean proof search."
+    ].filterMap id
+
+private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
+  dedupStrings <|
+    [ s!"Source ACL2 book: {sourcePath}"
+    , s!"Requested theorem: {artifact.requested_theorem}"
+    , s!"ACL2 matched theorem: {artifact.theorem_name}"
+    , s!"Extraction status: {artifact.status}"
+    ] ++
+      (if artifact.stderr.isEmpty then [] else [s!"ACL2 stderr: {artifact.stderr}"])
+
+def snapshotOfDynamicHints
+    (sourcePath theoremName : String)
+    (artifact : ACL2.HintBridge.DynamicArtifact) : Snapshot :=
+  { theoremName := s!"ACL2 emitted hints for {theoremName}"
+    goal := s!"ACL2 dynamic summary:\n  {artifact.summary_form}\n\nDynamic proof context:\n  key checkpoints: {artifact.checkpoints.length}\n  observations: {artifact.observations.length}\n  warnings: {artifact.warnings.length}\n  induction summaries: {artifact.inductions.length}"
+    checkpoints := dynamicCheckpoints artifact
+    runes := dynamicRunes artifact
+    nextMoves := dynamicNextMoves artifact
+    notes := dynamicNotes sourcePath artifact
+  }
+
 private def findImportedTheoremContext
     (events : List Event)
     (theoremName : String) : Except String (Symbol × TheoremInfo × List TheoryExpr) :=
@@ -166,6 +231,15 @@ private def importedSnapshotFromFile (sourcePath theoremName : String) : IO (Exc
       pure <|
         (findImportedTheoremContext events theoremName).map fun (name, info, theories) =>
           snapshotOfImportedTheorem sourcePath name info theories
+
+private def dynamicSnapshotFromFile (sourcePath theoremName : String) : IO (Except String Snapshot) := do
+  match ← ACL2.HintBridge.fetchArtifact sourcePath theoremName with
+  | .error err => pure (.error err)
+  | .ok artifact =>
+      if artifact.status = "proved" then
+        pure (.ok (snapshotOfDynamicHints sourcePath theoremName artifact))
+      else
+        pure (.error s!"ACL2 did not prove {theoremName}; status was {artifact.status}")
 
 private def attr (name : String) (value : Json) : String × Json :=
   (name, value)
@@ -360,6 +434,7 @@ private def snapshotSyntax (snap : Snapshot) : CommandElabM (TSyntax `term) := d
 
 syntax (name := aclPanelCmd) "#acl_panel " ident : command
 syntax (name := aclImportedPanelCmd) "#acl_imported_panel " str str : command
+syntax (name := aclHintPanelCmd) "#acl_hint_panel " str str : command
 
 @[command_elab aclPanelCmd]
 def elabAclPanel : CommandElab := fun stx => do
@@ -383,6 +458,22 @@ def elabAclImportedPanel : CommandElab := fun stx => do
     | throwError "expected a string literal ACL2 theorem name"
   let snap ← liftIO do
     importedSnapshotFromFile pathStr theoremStr
+  match snap with
+  | .error err => throwError err
+  | .ok snap =>
+      let snapTerm ← snapshotSyntax snap
+      elabCommand (← `(#html ACL2.ProofMode.render $snapTerm))
+
+@[command_elab aclHintPanelCmd]
+def elabAclHintPanel : CommandElab := fun stx => do
+  let path := stx[1]
+  let theoremStx := stx[2]
+  let some pathStr := path.isStrLit?
+    | throwError "expected a string literal ACL2 book path"
+  let some theoremStr := theoremStx.isStrLit?
+    | throwError "expected a string literal ACL2 theorem name"
+  let snap ← liftIO do
+    dynamicSnapshotFromFile pathStr theoremStr
   match snap with
   | .error err => throwError err
   | .ok snap =>

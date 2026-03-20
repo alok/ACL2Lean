@@ -39,6 +39,10 @@ private def printTheoryEvents (events : List ACL2.Event) : IO Unit := do
       for line in ACL2.TheoryExpr.renderLines 2 theoryExpr do
         IO.println line
 
+private def printDynamicHints (artifact : ACL2.HintBridge.DynamicArtifact) : IO Unit := do
+  for line in ACL2.HintBridge.renderLines artifact do
+    IO.println line
+
 def main (args : List String) : IO Unit := do
   match args with
   | ["report"] => do
@@ -110,9 +114,14 @@ def main (args : List String) : IO Unit := do
               | .defthm name info => printTheoremMetadata name info
               | _ => IO.eprintln s!"No theorem named {theoremName} in {path}"
           | _ => IO.eprintln s!"No theorem named {theoremName} in {path}"
+  | ["hints", path, theoremName] => do
+      match ← ACL2.HintBridge.fetchArtifact path theoremName with
+      | .error err => IO.eprintln s!"Hint bridge error: {err}"
+      | .ok artifact => printDynamicHints artifact
   | _ => do
       IO.println "Usage:"
       IO.println "  acl2lean report"
       IO.println "  acl2lean eval \"(expr)\""
+      IO.println "  acl2lean hints file.lisp theorem-name"
       IO.println "  acl2lean metadata file.lisp [theorem]"
       IO.println "  acl2lean translate file.lisp"

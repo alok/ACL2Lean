@@ -17,6 +17,26 @@ The desired end state is:
 - end with a native Lean theorem term checked by Lean,
 - keep the path reproducible and inspectable.
 
+## Current focus
+
+Prioritize the **ACL2 hint-generator path** right now.
+
+Treat the ACL2 binary as an **untrusted proof search / hint oracle** that can
+emit checkpoints, induction choices, warning lines, theory changes, and other
+proof guidance for Lean.
+
+This takes priority over manually reconstructing more theorems by hand, because:
+
+- the hint-generator path can later feed the direct replay/reimplementation path
+- it lets ACL2 carry more of the search complexity
+- the local ACL2 sources already expose promising seams such as:
+  - ACL2(p) key checkpoints in `prove.lisp`
+  - proof-builder `:instructions` support in `proof-builder-b.lisp`
+  - `bash` / `in-theory` / `:use` / `:cases`-style proof structure
+
+Keep the direct replay path alive as a support lane, but do not let it consume
+the whole run unless it directly helps the hint bridge.
+
 ## Current baseline
 
 The repo already has:
@@ -49,6 +69,35 @@ Before acting in any fresh iteration, read enough of these for context:
 Also read ACL2 and Lean source material as needed. Using the ACL2 binary and the
 Lean source tree is in scope.
 
+## Tools, MCP, and skills
+
+Use the available Codex skills and MCP tools aggressively whenever they are the
+right tool for the job. Do not default to ad hoc shell work if a stronger
+structured tool already exists.
+
+In particular:
+
+- use `lean-lsp-mcp` heavily for Lean development:
+  - goals
+  - diagnostics
+  - hover/type info
+  - local search
+  - LeanFinder / Loogle / state search
+- use the available skills when the task matches them, especially:
+  - Lean theorem proving / proof tooling skills
+  - `ralph-loop` is no longer the loop template, but repo-local skills are still in scope
+  - any relevant OpenAI docs / playwright / linear / figma skills if the task calls for them
+- use `linear` MCP to keep project/task state sensible when a meaningful milestone changes
+- use `exa` or web search when external research is genuinely needed
+- use `openaiDeveloperDocs` only for OpenAI-product questions
+- use `playwright` / UI tooling when validating proof-mode UI behavior
+
+Working rule:
+
+- prefer MCP/skills for structured stateful work
+- prefer shell for simple local file/build/git operations
+- combine them rather than choosing one style dogmatically
+
 ## Autonomous workstreams
 
 Do not scope yourself so tightly that you finish early and starve the run.
@@ -58,6 +107,7 @@ At every step, pick the highest-leverage task from these workstreams:
 1. **ACL2 proof artifact extraction**
    - find what ACL2 can expose: proof trees, checkpoints, hints, events, traces, source-level proof structure
    - use ACL2 binaries and ACL2 source code as needed
+   - prefer dynamic emitted artifacts over static book metadata when both are available
 2. **Proof replay infrastructure**
    - design a replay format or importer
    - generate Lean proof scripts or proof terms
@@ -77,6 +127,16 @@ At every step, pick the highest-leverage task from these workstreams:
    - keep a clear record of what works, what failed, and what to try next
 
 If one lane blocks, pivot immediately to another useful lane. Do not wait for the user.
+
+## Preferred attack order
+
+Right now, prefer this order:
+
+1. dynamic ACL2 checkpoint / hint extraction
+2. Lean-side parsing and normalization of emitted ACL2 hints
+3. proof-mode display of dynamic emitted hints
+4. Lean replay/checking driven by emitted hints
+5. only then additional manual theorem reconstruction
 
 ## Mainline promotion policy
 

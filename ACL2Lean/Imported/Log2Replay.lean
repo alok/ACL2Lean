@@ -107,6 +107,149 @@ private theorem nbrCallsClog2Nat_eq_1_plus_clog2Nat {n : Nat} (h : 0 < n) :
   simp [nbrCallsClog2Nat, Nat.ne_of_gt h]
 
 /--
+A proof-friendly semantic mirror of the imported ACL2 `flog2`, restricted to
+the positive-integer case that matters for theorem replay.
+-/
+private def flog2Nat (n : Nat) : Nat :=
+  n.log2
+
+private def nbrCallsFlog2Nat : Nat → Nat
+  | 0 => 1
+  | n + 1 =>
+      if (n + 1) % 2 = 0 then
+        1 + nbrCallsFlog2Nat ((n + 1) / 2)
+      else
+        1 + nbrCallsFlog2Nat n
+termination_by n => n
+
+private theorem two_pow_flog2Nat_le_self {n : Nat} (h : 0 < n) :
+    2 ^ flog2Nat n ≤ n := by
+  simpa [flog2Nat] using Nat.log2_self_le (Nat.ne_of_gt h)
+
+private theorem self_lt_two_pow_succ_flog2Nat (n : Nat) :
+    n < 2 ^ (flog2Nat n + 1) := by
+  simpa [flog2Nat] using Nat.lt_log2_self (n := n)
+
+private theorem flog2Nat_even {n : Nat} (h : 0 < n) :
+    flog2Nat (2 * n) = flog2Nat n + 1 := by
+  simpa [flog2Nat, Nat.mul_comm] using Nat.log2_two_mul (n := n) (Nat.ne_of_gt h)
+
+private theorem flog2Nat_odd {n : Nat} (h : 0 < n) :
+    flog2Nat (2 * n + 1) = flog2Nat n + 1 := by
+  obtain ⟨h₁, h₂⟩ := (Nat.log2_eq_iff (n := n) (k := n.log2) (Nat.ne_of_gt h)).mp rfl
+  rw [flog2Nat, flog2Nat, Nat.log2_eq_iff (n := 2 * n + 1) (k := n.log2 + 1) (by omega)]
+  constructor
+  · rw [Nat.pow_succ]
+    omega
+  · rw [Nat.pow_succ]
+    omega
+
+private theorem nbrCallsFlog2Nat_even {n : Nat} (h : 0 < n) :
+    nbrCallsFlog2Nat (2 * n) = 1 + nbrCallsFlog2Nat n := by
+  have hsucc : 2 * n = Nat.succ (2 * n - 1) := by omega
+  rw [hsucc, nbrCallsFlog2Nat]
+  have hmod : (2 * n - 1 + 1) % 2 = 0 := by omega
+  have hdiv : (2 * n - 1 + 1) / 2 = n := by omega
+  simp [hmod, hdiv]
+
+private theorem nbrCallsFlog2Nat_odd {n : Nat} (h : 0 < n) :
+    nbrCallsFlog2Nat (2 * n + 1) = 2 + nbrCallsFlog2Nat n := by
+  have hsucc : 2 * n + 1 = Nat.succ (2 * n) := by omega
+  rw [hsucc, nbrCallsFlog2Nat]
+  have hmod : ¬ ((2 * n + 1) % 2 = 0) := by omega
+  rw [if_neg hmod, nbrCallsFlog2Nat_even h]
+  omega
+
+private theorem nbrCallsFlog2Nat_lower : ∀ n : Nat, 0 < n → 2 + flog2Nat n ≤ nbrCallsFlog2Nat n
+  | 0, h => by cases Nat.lt_asymm h h
+  | 1, _ => by
+      have hlog : flog2Nat 1 = 0 := by
+        rw [flog2Nat]
+        exact (Nat.log2_eq_iff (n := 1) (k := 0) (by decide)).2 (by decide)
+      simp [nbrCallsFlog2Nat, hlog]
+  | n + 2, _ => by
+      rcases Nat.mod_two_eq_zero_or_one (n + 2) with hmod | hmod
+      · have hhalfPos : 0 < (n + 2) / 2 := by omega
+        have ih := nbrCallsFlog2Nat_lower ((n + 2) / 2) hhalfPos
+        have hEq : n + 2 = 2 * ((n + 2) / 2) := by omega
+        rw [hEq, nbrCallsFlog2Nat_even hhalfPos, flog2Nat_even hhalfPos]
+        omega
+      · have hhalfPos : 0 < (n + 2) / 2 := by omega
+        have ih := nbrCallsFlog2Nat_lower ((n + 2) / 2) hhalfPos
+        have hEq : n + 2 = 2 * ((n + 2) / 2) + 1 := by omega
+        rw [hEq, nbrCallsFlog2Nat_odd hhalfPos, flog2Nat_odd hhalfPos]
+        omega
+
+private theorem nbrCallsFlog2Nat_upper : ∀ n : Nat, 0 < n → nbrCallsFlog2Nat n ≤ 2 + 2 * flog2Nat n
+  | 0, h => by cases Nat.lt_asymm h h
+  | 1, _ => by
+      have hlog : flog2Nat 1 = 0 := by
+        rw [flog2Nat]
+        exact (Nat.log2_eq_iff (n := 1) (k := 0) (by decide)).2 (by decide)
+      simp [nbrCallsFlog2Nat, hlog]
+  | n + 2, _ => by
+      rcases Nat.mod_two_eq_zero_or_one (n + 2) with hmod | hmod
+      · have hhalfPos : 0 < (n + 2) / 2 := by omega
+        have ih := nbrCallsFlog2Nat_upper ((n + 2) / 2) hhalfPos
+        have hEq : n + 2 = 2 * ((n + 2) / 2) := by omega
+        rw [hEq, nbrCallsFlog2Nat_even hhalfPos, flog2Nat_even hhalfPos]
+        omega
+      · have hhalfPos : 0 < (n + 2) / 2 := by omega
+        have ih := nbrCallsFlog2Nat_upper ((n + 2) / 2) hhalfPos
+        have hEq : n + 2 = 2 * ((n + 2) / 2) + 1 := by omega
+        rw [hEq, nbrCallsFlog2Nat_odd hhalfPos, flog2Nat_odd hhalfPos]
+        omega
+
+private theorem nbrCallsFlog2Nat_even_upper {n : Nat} (h : 0 < n) :
+    nbrCallsFlog2Nat (2 * n) ≤ 1 + 2 * flog2Nat (2 * n) := by
+  rw [nbrCallsFlog2Nat_even h, flog2Nat_even h]
+  have hUpper := nbrCallsFlog2Nat_upper n h
+  omega
+
+private theorem nbrCallsFlog2Nat_odd_upper {n : Nat} (h : 0 < n) :
+    nbrCallsFlog2Nat (2 * n + 1) ≤ 2 + 2 * flog2Nat (2 * n + 1) := by
+  rw [nbrCallsFlog2Nat_odd h, flog2Nat_odd h]
+  have hUpper := nbrCallsFlog2Nat_upper n h
+  omega
+
+/-- Imported from `acl2_samples/2009-log2.lisp`, normalized through `Nat`. -/
+def flog2 : SExpr → SExpr
+  | .atom (.number (.int z)) =>
+      if 0 < z then natExpr (flog2Nat z.toNat) else intExpr 0
+  | _ => intExpr 0
+
+/-- Imported from `acl2_samples/2009-log2.lisp`, normalized through `Nat`. -/
+def nbrCallsFlog2 : SExpr → SExpr
+  | .atom (.number (.int z)) =>
+      if 0 < z then natExpr (nbrCallsFlog2Nat z.toNat) else intExpr 1
+  | _ => intExpr 1
+
+private theorem flog2_eq_natExpr_of_pos {z : Int} (hz : 0 < z) :
+    flog2 (intExpr z) = natExpr (flog2Nat z.toNat) := by
+  simp [flog2, intExpr, natExpr, hz]
+
+private theorem nbrCallsFlog2_eq_natExpr_of_pos {z : Int} (hz : 0 < z) :
+    nbrCallsFlog2 (intExpr z) = natExpr (nbrCallsFlog2Nat z.toNat) := by
+  simp [nbrCallsFlog2, intExpr, natExpr, hz]
+
+private theorem expt_two_flog2_eq_natExpr_of_pos {z : Int} (hz : 0 < z) :
+    Logic.expt (intExpr 2) (flog2 (intExpr z)) = natExpr (2 ^ flog2Nat z.toNat) := by
+  simp [Logic.expt, flog2, intExpr, natExpr, hz]
+  intro hneg
+  omega
+
+private theorem expt_two_succ_flog2_eq_natExpr_of_pos {z : Int} (hz : 0 < z) :
+    Logic.expt (intExpr 2) (Logic.plus (intExpr 1) (flog2 (intExpr z))) =
+      natExpr (2 ^ (flog2Nat z.toNat + 1)) := by
+  have hPlus : Logic.plus (intExpr 1) (flog2 (intExpr z)) = natExpr (flog2Nat z.toNat + 1) := by
+    simp [Logic.plus, flog2, intExpr, natExpr, hz]
+    omega
+  rw [hPlus]
+  simp [Logic.expt, intExpr, natExpr]
+  intro hneg
+  omega
+
+/--
 Reconstruction of ACL2 theorem `natp-clog2` from
 `acl2_samples/2009-log2.lisp`.
 -/

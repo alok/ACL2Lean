@@ -22,6 +22,17 @@ tightly that you finish early. If one approach blocks, pivot immediately to the 
 task across proof extraction, replay infrastructure, translator/import work, proving support,
 semantic alignment, UI, or source research.
 
+Right now prioritize the ACL2 hint-generator path: treat the ACL2 binary as an untrusted proof
+search / hint oracle, capture dynamic checkpoints / warnings / induction choices / theory guidance,
+parse those back into Lean, and only then lean on manual theorem reconstruction when it directly
+supports that bridge.
+
+Use Codex skills and MCP tools aggressively when they fit the task. In particular, lean on
+`lean-lsp-mcp` for Lean goals/diagnostics/search, use relevant skills when the task matches them,
+use `linear` for meaningful milestone/task tracking, use `exa`/web research when external sources
+are needed, and use UI/browser tooling when validating proof-mode behavior. Do not default to
+pure shell workflows if a stronger structured tool exists.
+
 Do not wait for user input. Continue autonomously.
 EOF
 
