@@ -182,6 +182,154 @@ class HintBridgeParsingTests(unittest.TestCase):
             )
         )
 
+    def test_non_rec_warnings_expand_plural_definition_lists(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>
+            ACL2 Warning [Non-rec] in ( DEFTHM INV-INITIAL-STATE ...):  A :REWRITE
+            rule generated from INV-INITIAL-STATE will be triggered only by terms
+            containing the function symbols INV and INITIAL-STATE, which have non-
+            recursive definitions.  Unless these definitions are disabled, this
+            rule is unlikely ever to be used.
+
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM INV-INITIAL-STATE ...)
+            Rules: NIL
+            Warnings:  Non-rec
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             INV-INITIAL-STATE
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "inv-initial-state")
+        disable_targets = {
+            tuple(action["targets"])
+            for action in artifact["actions"]
+            if action["kind"] == "disable-definition"
+        }
+        self.assertEqual(
+            disable_targets,
+            {
+                ("(:DEFINITION INV)", "INV-INITIAL-STATE"),
+                ("(:DEFINITION INITIAL-STATE)", "INV-INITIAL-STATE"),
+            },
+        )
+
+    def test_non_rec_linear_warnings_preserve_rule_class(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>
+            ACL2 Warning [Non-rec] in ( DEFTHM POSITIVE-FLOOR-LITTLE-LEMMA ...):
+            A :LINEAR rule generated from POSITIVE-FLOOR-LITTLE-LEMMA will be triggered
+            only by terms containing the function symbol FLOOR, which has a non-
+            recursive definition.  Unless this definition is disabled, such triggering
+            terms are unlikely to arise and so POSITIVE-FLOOR-LITTLE-LEMMA is unlikely
+            to ever be used.
+
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM POSITIVE-FLOOR-LITTLE-LEMMA ...)
+            Rules: NIL
+            Warnings:  Non-rec
+            Time:  0.01 seconds (prove: 0.00, print: 0.00, other: 0.01)
+             POSITIVE-FLOOR-LITTLE-LEMMA
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "positive-floor-little-lemma")
+        self.assertTrue(
+            any(
+                action["kind"] == "disable-definition"
+                and action["summary"] == "disable (:DEFINITION FLOOR) so :LINEAR from POSITIVE-FLOOR-LITTLE-LEMMA can fire"
+                and action["targets"] == ["(:DEFINITION FLOOR)", "POSITIVE-FLOOR-LITTLE-LEMMA"]
+                for action in artifact["actions"]
+            )
+        )
+
+    def test_free_warning_becomes_bind_free_variable_action(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>
+            ACL2 Warning [Free] in ( DEFTHM NATP-/-GCD-LITTLE-LEMMA ...):  A :REWRITE
+            rule generated from NATP-/-GCD-LITTLE-LEMMA contains the free variable
+            J.  This variable will be chosen by searching for an instance of
+            (EQUAL (NONNEG-INT-MOD J GCD) 0) in the context of the term being rewritten.
+            This is generally a severe restriction on the applicability of a :REWRITE
+            rule.  See :DOC free-variables.
+
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM NATP-/-GCD-LITTLE-LEMMA ...)
+            Rules: NIL
+            Warnings:  Free
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             NATP-/-GCD-LITTLE-LEMMA
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "natp-/-gcd-little-lemma")
+        self.assertTrue(
+            any(
+                action["kind"] == "bind-free-variable"
+                and action["summary"] == "bind free variable J using (EQUAL (NONNEG-INT-MOD J GCD) 0)"
+                and action["targets"] == ["J", "(EQUAL (NONNEG-INT-MOD J GCD) 0)"]
+                for action in artifact["actions"]
+            )
+        )
+
+    def test_free_warning_with_trigger_term_becomes_bind_free_variable_action(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>
+            ACL2 Warning [Free] in ( DEFTHM POSITIVE-FLOOR-LITTLE-LEMMA ...):
+            A :LINEAR rule generated from POSITIVE-FLOOR-LITTLE-LEMMA will be triggered
+            by the term (FLOOR I GCD).  When POSITIVE-FLOOR-LITTLE-LEMMA is triggered
+            by (FLOOR I GCD) the variable J will be chosen by searching for an
+            instance of (EQUAL (NONNEG-INT-MOD J GCD) '0) among the hypotheses
+            of the conjecture being rewritten.  This is generally a severe restriction
+            on the applicability of the :LINEAR rule.
+
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM POSITIVE-FLOOR-LITTLE-LEMMA ...)
+            Rules: NIL
+            Warnings:  Free
+            Time:  0.01 seconds (prove: 0.00, print: 0.00, other: 0.01)
+             POSITIVE-FLOOR-LITTLE-LEMMA
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "positive-floor-little-lemma")
+        self.assertTrue(
+            any(
+                action["kind"] == "bind-free-variable"
+                and action["summary"] == "bind free variable J using (EQUAL (NONNEG-INT-MOD J GCD) '0) when rule sees (FLOOR I GCD)"
+                and action["targets"] == [
+                    "J",
+                    "(EQUAL (NONNEG-INT-MOD J GCD) '0)",
+                    "(FLOOR I GCD)",
+                ]
+                for action in artifact["actions"]
+            )
+        )
+
     def test_splitter_rules_become_split_actions(self) -> None:
         transcript = dedent(
             """

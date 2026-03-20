@@ -42,8 +42,22 @@ TYPED_TERM_RE = re.compile(
     re.IGNORECASE,
 )
 NONREC_WARNING_RE = re.compile(
-    r":REWRITE rule generated from\s+([^\s]+)\s+will be triggered only by terms containing\s+"
-    r"the function symbol\s+([^\s,]+)",
+    r"A\s+:(?P<rule_class>[A-Z0-9-]+)\s+rule generated from\s+(?P<theorem>[^\s]+)\s+"
+    r"will be triggered only by terms containing\s+the function symbols?\s+"
+    r"(?P<functions>.+?),\s+which\s+(?:has|have)\s+(?:a\s+)?non-\s*recursive definitions?\.",
+    re.IGNORECASE,
+)
+FREE_WARNING_RE = re.compile(
+    r"A\s+:(?P<rule_class>[A-Z0-9-]+)\s+rule generated from\s+(?P<theorem>[^\s]+)\s+"
+    r"contains the free variable\s+(?P<variable>[^\s.]+)\.\s+This variable will be chosen by "
+    r"searching for an instance of\s+(?P<hypothesis>.+?)\s+in the context of the term being rewritten\.",
+    re.IGNORECASE,
+)
+FREE_WARNING_WITH_TRIGGER_RE = re.compile(
+    r"A\s+:(?P<rule_class>[A-Z0-9-]+)\s+rule generated from\s+(?P<theorem>[^\s]+)\s+"
+    r"will be triggered by the term\s+(?P<trigger>.+?)\.\s+When\s+[^\s]+\s+is triggered by\s+.+?\s+"
+    r"the variable\s+(?P<variable>[^\s.]+)\s+will be chosen by searching for an instance of\s+"
+    r"(?P<hypothesis>.+?)\s+among the hypotheses of the conjecture being rewritten\.",
     re.IGNORECASE,
 )
 SPLITTER_RULE_RE = re.compile(r"^\s*([^:]+):\s*(.+?)\s*$")
@@ -119,6 +133,17 @@ def dedup_actions(actions: list[dict[str, object]]) -> list[dict[str, object]]:
         seen.add(key)
         deduped.append(action)
     return deduped
+
+
+def split_acl2_symbol_list(text: str) -> list[str]:
+    normalized = re.sub(r"\s+and\s+", ",", text.strip(), flags=re.IGNORECASE)
+    return [part.strip().strip(".,") for part in normalized.split(",") if part.strip()]
+
+
+def nonrec_action_summary(rule_class: str, theorem_name: str, definition_rune: str) -> str:
+    if rule_class.lower() == "rewrite":
+        return f"disable {definition_rune} so rewrite from {theorem_name} can fire"
+    return f"disable {definition_rune} so :{rule_class.upper()} from {theorem_name} can fire"
 
 
 @dataclass(frozen=True)
@@ -600,15 +625,40 @@ def extract_warning_actions(warnings: list[str]) -> list[dict[str, object]]:
 
         nonrec_match = NONREC_WARNING_RE.search(warning_text)
         if nonrec_match:
-            theorem_name, function_name = nonrec_match.groups()
-            definition_rune = f"(:DEFINITION {function_name})"
+            theorem_name = nonrec_match.group("theorem")
+            rule_class = nonrec_match.group("rule_class")
+            function_names = split_acl2_symbol_list(nonrec_match.group("functions"))
+            for function_name in function_names:
+                definition_rune = f"(:DEFINITION {function_name})"
+                actions.append(
+                    make_action(
+                        "disable-definition",
+                        "warning",
+                        nonrec_action_summary(rule_class, theorem_name, definition_rune),
+                        warning,
+                        targets=[definition_rune, theorem_name],
+                    )
+                )
+
+        free_match = FREE_WARNING_WITH_TRIGGER_RE.search(warning_text)
+        if free_match is None:
+            free_match = FREE_WARNING_RE.search(warning_text)
+        if free_match:
+            variable = free_match.group("variable").strip()
+            hypothesis = free_match.group("hypothesis").strip()
+            trigger = free_match.groupdict().get("trigger", "").strip()
+            summary = f"bind free variable {variable} using {hypothesis}"
+            targets = [variable, hypothesis]
+            if trigger:
+                summary += f" when rule sees {trigger}"
+                targets.append(trigger)
             actions.append(
                 make_action(
-                    "disable-definition",
+                    "bind-free-variable",
                     "warning",
-                    f"disable {definition_rune} so rewrite from {theorem_name} can fire",
+                    summary,
                     warning,
-                    targets=[definition_rune, theorem_name],
+                    targets=targets,
                 )
             )
     return actions
