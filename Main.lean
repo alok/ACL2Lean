@@ -70,13 +70,21 @@ def main (args : List String) : IO Unit := do
           IO.println "import ACL2Lean.Lexorder"
           IO.println "import ACL2Lean.Count"
           IO.println "import ACL2Lean.Tactics"
-          -- Emit include-book as import comments
+          -- Emit include-book as Lean imports
           for ev in ACL2.Event.flattenList evs do
             match ev with
             | .includeBook bookPath _ =>
-                let bookName := bookPath.replace "-" "_"
-                let bookName := bookName.replace "/" "."
-                IO.println s!"-- import: {bookPath} (ACL2Lean.Translated.{bookName})"
+                -- Convert ACL2 book path to Lean module name
+                -- "perm" -> "ACL2Lean.Translated.Perm"
+                -- "ordered-perms" -> "ACL2Lean.Translated.OrderedPerms"
+                let parts := bookPath.splitOn "-"
+                let capitalized := parts.map fun p =>
+                  if p.isEmpty then p
+                  else
+                    let chars := p.toList
+                    String.mk (chars.head!.toUpper :: chars.tail!)
+                let moduleName := String.intercalate "" capitalized
+                IO.println s!"import ACL2Lean.Translated.{moduleName}"
             | _ => pure ()
           IO.println "open ACL2 ACL2.Logic ACL2.Tactics"
           IO.println ""
