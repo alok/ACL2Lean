@@ -1021,3 +1021,43 @@ Next best ideas:
 1. make dynamic checkpoint/progress extraction equally theorem-local in macro-generated transcripts where helper subproofs can still appear without explicit warning/observation headers
 2. start executing the cleaned checkpoint-local dynamic `use`, `disable-rule` / `disable-definition`, and `in-theory` actions against Lean replay state so theorem-local oracle guidance affects checked replay
 3. decide whether newly surfaced dynamic hint kinds like `:CLAUSE-PROCESSOR` should become first-class Lean-side replay actions rather than remaining generic action records
+
+## 2026-03-19 Iteration 28
+
+Completed this iteration:
+
+- added Lean-side `DynamicAction` payload parsing helpers in `ACL2Lean.HintBridge` for dynamic `:EXPAND` and `:DO-NOT-INDUCT` guidance, reusing the ACL2 parser instead of leaving those payloads stringly typed after import into Lean
+- taught `acl2lean hints` action rendering to print structured payload lines such as `expand: (ev$ x a)` and `do-not-induct: T` under real ACL2-emitted actions
+- updated `ACL2Lean.ProofMode` so checkpoint-local action details and snapshot notes now surface parsed expand/do-not-induct payloads as structured note entries (`action-expand ...`, `action-do-not-induct ...`) rather than only flat summaries
+- added guard-style Lean regressions for the new structured payload helpers and updated `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md` to document the broader dynamic payload normalization surface
+- tracked this slice in Linear as `ALOK-567`
+
+Verification:
+
+- research branch commit `a32515d`: `lean-lsp-mcp` diagnostics on `ACL2Lean/HintBridge.lean`
+- research branch commit `a32515d`: `lake build ACL2Lean.HintBridge ACL2Lean.ProofMode Main`
+- research branch commit `a32515d`: `./.lake/build/bin/acl2lean hints acl2_samples/apply-model-apply.lisp 'ev$-def-fact' | rg -n 'expand:'`
+- research branch commit `a32515d`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp nonnegative-integer-quotient-gcd-relatively-prime | rg -n 'do-not-induct:'`
+- research branch commit `a32515d`: `lake env lean <tmp proofmode debug>` confirmed `snapshotOfDynamicHints` emits `action-expand transcript-hint/expand: (ev$ x a)` and `action-do-not-induct transcript-hint/do-not-induct: T` on the real artifacts
+- research branch commit `a32515d`: `uv run python Verify.py`
+- research branch commit `a32515d`: `LAKE_NO_CACHE=1 lake build acl2lean`
+- research branch commit `a32515d`: `LAKE_NO_CACHE=1 lake build`
+- pushed research branch commit `a32515d` to `origin/autoresearch/mar19-acl2lean`
+- `gh run watch 23332255723 --exit-status` succeeded for GitHub Actions run `23332255723`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- a plain `lake build` initially failed on a local Lake artifact-cache permission error under `~/.elan/.../lake/cache/artifacts`; rerunning with `LAKE_NO_CACHE=1` restored full-build verification without changing repo behavior
+- this directly advances the preferred attack order in `program.md`: dynamic ACL2 payloads emitted by the oracle no longer stop as flat strings once they cross into Lean, which reduces the amount of ad hoc re-parsing the eventual replay executor will need
+- I did not promote this slice to `main` yet because it still deepens the research-branch-only dynamic hint/proof-mode workflow rather than a surface already carried on `main`
+
+Next best ideas:
+
+1. start executing the newly parsed dynamic `expand` and `do-not-induct` actions against Lean replay state, alongside the existing `use` / theory guidance
+2. surface and normalize real dynamic `:cases` payloads once a corpus theorem emits them or another ACL2 path exposes them cleanly
+3. decide whether the recent dynamic hint/proof-mode slices are coherent enough to promote together to `main` as one stable replay-infrastructure batch
