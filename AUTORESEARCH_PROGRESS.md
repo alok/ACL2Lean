@@ -225,3 +225,40 @@ Next best ideas:
 1. interpret the structured `TheoryExpr` tree into a Lean-side active rune / simp-set model so imported `:in-theory` can affect checked replay instead of only display
 2. parse `:cases` and other still-unstructured hint options so more ACL2 proof metadata becomes replay-usable
 3. replace the imported panel's planned checkpoints with checked replay state by executing `:bash`, `:in-theory`, and `:repeat :prove` against Lean goals
+
+## 2026-03-19 Iteration 7
+
+Completed this iteration:
+
+- added `ACL2Lean/Imported/Log2Replay.lean`, a new module that reconstructs ACL2 theorem `nbr-calls-clog2=1+clog2` from `acl2_samples/2009-log2.lisp` as a native Lean theorem over the `SExpr` encoding
+- introduced a proof-friendly `Nat` semantic mirror for the positive-integer execution path of imported `clog2` / `nbrCallsClog2`, then used it to prove the imported theorem instead of leaving another translated `sorry`
+- added build-time `#guard` checks for representative imported values from the ACL2 book, including `clog2 10 = 4` and `nbrCallsClog2 17 = 6`
+- exported the new module through `ACL2Lean.lean` and updated `README.md` / `ACL2_SPEC.md` so the repo now documents a real kernel-checked imported theorem checkpoint
+
+Verification:
+
+- research branch commit `f7559ac`: `lake build ACL2Lean.Imported.Log2Replay`
+- research branch commit `f7559ac`: `lake build`
+- research branch commit `f7559ac`: `uv run python Verify.py`
+- research branch commit `f7559ac`: `./.lake/build/bin/acl2lean eval-in acl2_samples/2009-log2.lisp "(clog2 10)"`
+- research branch commit `f7559ac`: `./.lake/build/bin/acl2lean eval-in acl2_samples/2009-log2.lisp "(nbr-calls-clog2 17)"`
+- pushed research branch commit `f7559ac` to `origin/autoresearch/mar19-acl2lean`
+- promoted the stable slice to `main` as `87f1687`
+- on `main`, the first `lake build` hit the same stale read-only `.lake` artifact issue seen in earlier promotions; after `lake clean`, both `lake build` and `uv run python Verify.py` passed
+
+Outcome:
+
+- keep
+- promoted to `main`
+
+Notes:
+
+- this is the first imported ACL2 theorem in the repo that is actually checked by Lean's kernel rather than only translated, rendered, or preserved as metadata
+- the proof is a reconstruction, not yet generic replay: it lowers the imported theorem's positive-integer path to a small `Nat` model and then lifts the result back to the ACL2 `SExpr` statement
+- the `Log2Replay` module is intentionally narrow, but it establishes a concrete pattern for turning computational ACL2 theorems into real Lean theorems without waiting for the full proof-mode / instruction-replay pipeline
+
+Next best ideas:
+
+1. generalize the `Log2Replay` lowering pattern into reusable infrastructure so more imported ACL2 theorems can reconstruct through proof-friendly semantic mirrors
+2. connect imported hint / instruction metadata to these reconstructions so the next checked theorem uses real ACL2 proof artifacts instead of only theorem statements
+3. prove one more small imported theorem from `acl2_samples/2009-log2.lisp` or `acl2_samples/die-hard-work.lisp` to test whether the new pattern scales beyond a single hand-held example
