@@ -444,6 +444,206 @@ def structuredLines (action : DynamicAction) (indent : Nat := 0) : List String :
 
 end DynamicAction
 
+private def dedupStrings (items : List String) : List String :=
+  items.foldl
+    (fun acc item =>
+      if item.isEmpty || acc.contains item then
+        acc
+      else
+        acc ++ [item])
+    []
+
+private def goalSuffix (goalTarget : Option String) : String :=
+  match goalTarget with
+  | some goal => s!" @ {goal}"
+  | none => ""
+
+private def formatReplayEntry (source : String) (goalTarget : Option String) (detail : String) : String :=
+  s!"{source}{goalSuffix goalTarget}: {detail}"
+
+structure DynamicReplayState where
+  theoryTimeline : List String := []
+  useTimeline : List String := []
+  clauseProcessors : List String := []
+  expandTimeline : List String := []
+  caseTimeline : List String := []
+  typedTerms : List String := []
+  inductionTerm : Option String := none
+  inductionRule : Option String := none
+  inductionGoal : Option String := none
+  doNotInduct : Option String := none
+  doNotInductGoal : Option String := none
+  otfFlag : Option String := none
+  deriving Inhabited, Repr
+
+namespace DynamicReplayState
+
+def isEmpty (state : DynamicReplayState) : Bool :=
+  state.theoryTimeline.isEmpty &&
+    state.useTimeline.isEmpty &&
+    state.clauseProcessors.isEmpty &&
+    state.expandTimeline.isEmpty &&
+    state.caseTimeline.isEmpty &&
+    state.typedTerms.isEmpty &&
+    state.inductionTerm.isNone &&
+    state.inductionRule.isNone &&
+    state.doNotInduct.isNone &&
+    state.otfFlag.isNone
+
+def inductionSummary? (state : DynamicReplayState) : Option String :=
+  let base :=
+    match state.inductionTerm, state.inductionRule with
+    | some term, some rule => some s!"{term} using {rule}"
+    | some term, none => some term
+    | none, some rule => some s!"rule {rule}"
+    | none, none => none
+  match base with
+  | some summary =>
+      match state.inductionGoal with
+      | some goal => some s!"{summary} @ {goal}"
+      | none => some summary
+  | none => none
+
+def doNotInductSummary? (state : DynamicReplayState) : Option String :=
+  match state.doNotInduct with
+  | some value =>
+      match state.doNotInductGoal with
+      | some goal => some s!"{value} @ {goal}"
+      | none => some value
+  | none => none
+
+def noteLines (state : DynamicReplayState) : List String :=
+  let summaryLines :=
+    [ inductionSummary? state |>.map (fun summary => s!"Replay induction: {summary}")
+    , doNotInductSummary? state |>.map (fun summary => s!"Replay do-not-induct: {summary}")
+    , state.otfFlag.map (fun value => s!"Replay otf-flg: {value}")
+    ].filterMap id
+  summaryLines ++
+    (state.theoryTimeline.map (fun line => s!"Replay theory: {line}")) ++
+    (state.useTimeline.map (fun line => s!"Replay use: {line}")) ++
+    (state.clauseProcessors.map (fun line => s!"Replay clause-processor: {line}")) ++
+    (state.expandTimeline.map (fun line => s!"Replay expand: {line}")) ++
+    (state.caseTimeline.map (fun line => s!"Replay cases: {line}")) ++
+    (state.typedTerms.map (fun line => s!"Replay typed-term: {line}"))
+
+end DynamicReplayState
+
+namespace DynamicArtifact
+
+def replayState (artifact : DynamicArtifact) : DynamicReplayState :=
+  let state : DynamicReplayState :=
+    artifact.actions.foldl
+      (fun (state : DynamicReplayState) action =>
+        match action.kind with
+        | "in-theory" =>
+            let detail :=
+              match action.theoryItems with
+              | [] => action.summary
+              | items => String.intercalate "; " items
+            ({ state with
+                theoryTimeline := state.theoryTimeline ++ [formatReplayEntry action.source action.goal_target detail] } : DynamicReplayState)
+        | "disable-rule" =>
+            match action.disableRulePayload? with
+            | some payload =>
+                ({ state with
+                    theoryTimeline :=
+                      state.theoryTimeline ++
+                        [formatReplayEntry action.source payload.goalTarget s!"disable {payload.rune}"] } : DynamicReplayState)
+            | none => state
+        | "disable-definition" =>
+            match action.disableDefinitionPayload? with
+            | some payload =>
+                ({ state with
+                    theoryTimeline :=
+                      state.theoryTimeline ++
+                        [formatReplayEntry action.source action.goal_target
+                          s!"disable {payload.definitionRune} for {payload.thmName}"] } : DynamicReplayState)
+            | none => state
+        | "use" =>
+            let detail :=
+              match action.usePayload? with
+              | some payload =>
+                  match payload.bindings with
+                  | [] => s!"use {payload.target.summary}"
+                  | bindings =>
+                      let bindingSummary := String.intercalate ", " (bindings.map UseInstanceBinding.summary)
+                      s!"use {payload.target.instanceSummary} with {bindingSummary}"
+              | none => action.summary
+            ({ state with
+                useTimeline := state.useTimeline ++ [formatReplayEntry action.source action.goal_target detail] } : DynamicReplayState)
+        | "clause-processor" =>
+            match action.clauseProcessorItems with
+            | [] => state
+            | items =>
+                ({ state with
+                    clauseProcessors :=
+                      state.clauseProcessors ++
+                        items.map (fun item => formatReplayEntry action.source action.goal_target item) } : DynamicReplayState)
+        | "expand" =>
+            match action.expandItems with
+            | [] => state
+            | items =>
+                ({ state with
+                    expandTimeline :=
+                      state.expandTimeline ++
+                        items.map (fun item => formatReplayEntry action.source action.goal_target item) } : DynamicReplayState)
+        | "cases" =>
+            match action.casesItems with
+            | [] => state
+            | items =>
+                ({ state with
+                    caseTimeline :=
+                      state.caseTimeline ++
+                        items.map (fun item => formatReplayEntry action.source action.goal_target item) } : DynamicReplayState)
+        | "typed-term" =>
+            let terms := action.nonGoalTargets
+            if terms.isEmpty then
+              state
+            else
+              ({ state with
+                  typedTerms :=
+                    state.typedTerms ++
+                      terms.map (fun term => formatReplayEntry action.source action.goal_target term) } : DynamicReplayState)
+        | "induct" =>
+            ({ state with
+                inductionTerm :=
+                  match action.inductTermItems with
+                  | item :: _ => some item
+                  | [] => state.inductionTerm
+                inductionRule :=
+                  match action.inductionRule? with
+                  | some rule => some rule
+                  | none => state.inductionRule
+                inductionGoal :=
+                  match action.goal_target with
+                  | some goal => some goal
+                  | none => state.inductionGoal } : DynamicReplayState)
+        | "do-not-induct" =>
+            match action.doNotInductExpr? with
+            | some expr =>
+                ({ state with
+                    doNotInduct := some (toString expr)
+                    doNotInductGoal :=
+                      match action.goal_target with
+                      | some goal => some goal
+                      | none => state.doNotInductGoal } : DynamicReplayState)
+            | none => state
+        | "otf-flg" =>
+            match action.otfFlagExpr? with
+            | some expr => ({ state with otfFlag := some (toString expr) } : DynamicReplayState)
+            | none => state
+        | _ => state)
+      ({} : DynamicReplayState)
+  ({ state with
+      theoryTimeline := dedupStrings state.theoryTimeline
+      useTimeline := dedupStrings state.useTimeline
+      clauseProcessors := dedupStrings state.clauseProcessors
+      expandTimeline := dedupStrings state.expandTimeline
+      caseTimeline := dedupStrings state.caseTimeline
+      typedTerms := dedupStrings state.typedTerms } : DynamicReplayState)
+
+end DynamicArtifact
+
 private def renderBlockSection (title : String) (items : List String) : List String :=
   if items.isEmpty then
     []
@@ -458,6 +658,31 @@ private def renderSimpleSection (title : String) (items : List String) : List St
     []
   else
     title :: items.map (fun item => s!"  {item}")
+
+private def renderReplayState (state : DynamicReplayState) : List String :=
+  if state.isEmpty then
+    []
+  else
+    let induction :=
+      match state.inductionSummary? with
+      | some summary => [s!"  selected-induction: {summary}"]
+      | none => []
+    let doNotInduct :=
+      match state.doNotInductSummary? with
+      | some summary => [s!"  do-not-induct: {summary}"]
+      | none => []
+    let otfFlag :=
+      match state.otfFlag with
+      | some value => [s!"  otf-flg: {value}"]
+      | none => []
+    let theory := renderLabeledItems "theory-timeline" state.theoryTimeline 2
+    let uses := renderLabeledItems "use-timeline" state.useTimeline 2
+    let clauseProcessors := renderLabeledItems "clause-processors" state.clauseProcessors 2
+    let expands := renderLabeledItems "expand-timeline" state.expandTimeline 2
+    let cases := renderLabeledItems "case-timeline" state.caseTimeline 2
+    let typedTerms := renderLabeledItems "typed-terms" state.typedTerms 2
+    "replay-state:" ::
+      induction ++ doNotInduct ++ otfFlag ++ theory ++ uses ++ clauseProcessors ++ expands ++ cases ++ typedTerms
 
 private def renderActionLines (action : DynamicAction) : List String :=
   let goalLine :=
@@ -484,6 +709,7 @@ private def renderActions (actions : List DynamicAction) : List String :=
         []
 
 def renderLines (artifact : DynamicArtifact) : List String :=
+  let replayState := artifact.replayState
   let header :=
     [ s!"book: {artifact.book}"
     , if artifact.resolved_book = artifact.book then
@@ -522,6 +748,7 @@ def renderLines (artifact : DynamicArtifact) : List String :=
     | some steps => [s!"prover-steps: {steps}"]
     | none => []
   let actions := renderActions artifact.actions
+  let replay := renderReplayState replayState
   let observations := renderBlockSection "observations:" artifact.observations
   let warnings := renderBlockSection "warnings:" artifact.warnings
   let inductions := renderBlockSection "inductions:" artifact.inductions
@@ -547,7 +774,7 @@ def renderLines (artifact : DynamicArtifact) : List String :=
             , s!"    {entry.text.replace "\n" "\n    "}"
             ] ++ acc)
           []
-  header ++ loadNote ++ loadSteps ++ summary ++ summaryRules ++ hintEvents ++ splitterRules ++ warningKinds ++ summaryTime ++ proverSteps ++ actions ++ observations ++ warnings ++ inductions ++ progress ++ checkpoints
+  header ++ loadNote ++ loadSteps ++ summary ++ summaryRules ++ hintEvents ++ splitterRules ++ warningKinds ++ summaryTime ++ proverSteps ++ actions ++ replay ++ observations ++ warnings ++ inductions ++ progress ++ checkpoints
 
 private def dynamicExpandPayloadParses : Bool :=
   let action : DynamicAction :=
@@ -770,6 +997,87 @@ private def dynamicRewriteOverlapPayloadParses : Bool :=
       line.contains "existing-rule:" && line.contains "|(+ y x)|")
 
 #guard dynamicRewriteOverlapPayloadParses
+
+private def dynamicReplayStateSummarizesActions : Bool :=
+  let artifact : DynamicArtifact :=
+    { book := "acl2_samples/demo.lisp"
+      resolved_book := "acl2_samples/demo.lisp"
+      load_steps := ["acl2_samples/demo.lisp"]
+      load_note := ""
+      requested_theorem := "demo"
+      theorem_name := "DEMO"
+      status := "proved"
+      summary_form := "( DEFTHM DEMO ...)"
+      summary_rules := []
+      hint_events := []
+      splitter_rules := []
+      warning_kinds := []
+      summary_time := ""
+      prover_steps := none
+      actions :=
+        [ { kind := "in-theory"
+            source := "hint-event"
+            summary := "adjust theory (DISABLE FLOOR)"
+            goal_target := none
+            targets := ["(DISABLE FLOOR)"]
+            detail := "(:IN-THEORY (DISABLE FLOOR))"
+          }
+        , { kind := "disable-rule"
+            source := "warning"
+            summary := "disable (:REWRITE FOO) in Goal"
+            goal_target := some "Goal"
+            targets := ["(:REWRITE FOO)", "Goal"]
+            detail := "ACL2 Warning [Use] ..."
+          }
+        , { kind := "use"
+            source := "transcript-hint"
+            summary := "use (:INSTANCE NOTE-3 (P P) (Q Q)) in Goal"
+            goal_target := some "Goal"
+            targets := ["(:INSTANCE NOTE-3 (P P) (Q Q))", "Goal"]
+            detail := "Goal: (:USE ((:INSTANCE NOTE-3 (P P) (Q Q))))"
+          }
+        , { kind := "induct"
+            source := "induction"
+            summary := "induct on (MAKE-PROG1-INDUCTION I N) using rule MAKE-PROG1-INDUCTION"
+            goal_target := some "Goal'"
+            targets := ["(MAKE-PROG1-INDUCTION I N)", "MAKE-PROG1-INDUCTION"]
+            detail := "We will induct according to a scheme suggested by (MAKE-PROG1-INDUCTION I N)."
+          }
+        , { kind := "do-not-induct"
+            source := "transcript-hint"
+            summary := "do-not-induct T in Goal"
+            goal_target := some "Goal"
+            targets := ["T", "Goal"]
+            detail := "Goal: (:DO-NOT-INDUCT T)"
+          }
+        , { kind := "otf-flg"
+            source := "transcript-option"
+            summary := "set otf-flg T"
+            goal_target := none
+            targets := ["T"]
+            detail := "(:OTF-FLG T)"
+          }
+        ]
+      checkpoints := []
+      progress := []
+      observations := []
+      warnings := []
+      inductions := []
+      raw_excerpt := []
+      stderr := ""
+      exit_code := 0
+    }
+  let state := artifact.replayState
+  state.inductionSummary? = some "(make-prog1-induction i n) using MAKE-PROG1-INDUCTION @ Goal'" &&
+    state.doNotInductSummary? = some "T @ Goal" &&
+    state.otfFlag = some "T" &&
+    state.theoryTimeline.any (fun line => line.contains "disable floor") &&
+    state.theoryTimeline.any (fun line => line.contains "disable (:REWRITE FOO)") &&
+    state.useTimeline.any (fun line => line.contains "note-3") &&
+    (renderLines artifact).any (fun line =>
+      line.contains "selected-induction: (make-prog1-induction i n) using MAKE-PROG1-INDUCTION @ Goal'")
+
+#guard dynamicReplayStateSummarizesActions
 
 end HintBridge
 end ACL2

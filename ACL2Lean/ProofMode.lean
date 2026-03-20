@@ -155,6 +155,7 @@ def snapshotOfImportedTheorem
   }
 
 private def dynamicContextCheckpoint (artifact : ACL2.HintBridge.DynamicArtifact) : Checkpoint :=
+  let replayState := artifact.replayState
   let keyCheckpointCount :=
     artifact.checkpoints.foldl
       (fun count checkpoint => if checkpoint.kind = "key-checkpoint" then count + 1 else count)
@@ -162,7 +163,7 @@ private def dynamicContextCheckpoint (artifact : ACL2.HintBridge.DynamicArtifact
   let traceCheckpointCount := artifact.checkpoints.length - keyCheckpointCount
   let progressCount := artifact.progress.length
   { title := "Dynamic ACL2 hint extraction"
-    detail := s!"Recovered {keyCheckpointCount} key checkpoints, {traceCheckpointCount} raw goal/subgoal markers, {progressCount} lifecycle progress events, {artifact.actions.length} candidate replay actions, {artifact.observations.length} observations, {artifact.warnings.length} warnings, {artifact.inductions.length} induction summaries, {artifact.summary_rules.length} summary rules, and {artifact.hint_events.length} hint-events from the ACL2 proof run."
+    detail := s!"Recovered {keyCheckpointCount} key checkpoints, {traceCheckpointCount} raw goal/subgoal markers, {progressCount} lifecycle progress events, {artifact.actions.length} candidate replay actions, {replayState.theoryTimeline.length} theory steps, {replayState.useTimeline.length} replay uses, {artifact.observations.length} observations, {artifact.warnings.length} warnings, {artifact.inductions.length} induction summaries, {artifact.summary_rules.length} summary rules, and {artifact.hint_events.length} hint-events from the ACL2 proof run."
     status :=
       if artifact.checkpoints.isEmpty && artifact.progress.isEmpty && artifact.actions.isEmpty then
         "planned"
@@ -252,14 +253,13 @@ private def dynamicCheckpoints (artifact : ACL2.HintBridge.DynamicArtifact) : Li
   | checkpoints => context :: checkpoints
 
 private def dynamicRunes (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
+  let replayState := artifact.replayState
   let nonTheoryHintEvents :=
     artifact.hint_events.filter (fun event => !(inlineBlock event).startsWith "(:IN-THEORY")
-  let dynamicTheoryItems :=
-    artifact.actions.foldr (fun action acc => action.theoryItems ++ acc) []
   dedupStrings <|
     artifact.summary_rules ++
       (nonTheoryHintEvents.map (fun event => s!"hint-event {event}")) ++
-      dynamicTheoryItems ++
+      (replayState.theoryTimeline.map (fun line => s!"theory-step {line}")) ++
       (artifact.splitter_rules.map (fun rule => s!"splitter {rule}")) ++
       (artifact.warning_kinds.map (fun kind => s!"warning-kind {kind}"))
 
@@ -364,12 +364,17 @@ private def actionNote (action : ACL2.HintBridge.DynamicAction) : String :=
   s!"action {action.source}/{action.kind}{goalTarget}: {action.summary}{targets}{theory}{clauseProcessor}{otfFlag}{inductTerm}{inductionRule}{expand}{cases}{doNotInduct}{disableRule}{disableDefinition}{warningTheorem}{freeVariable}{hypothesis}{triggerTerm}{generatedTheorem}{existingRule}"
 
 private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
+  let replayState := artifact.replayState
   dedupStrings <|
     (artifact.actions.map actionSummary) ++
     [ if artifact.summary_rules.isEmpty then
         some "ACL2 did not report summary rules for this theorem; extend the parser or pick a theorem whose proof emits replay-relevant rule usage."
       else
         some "Map ACL2's summary rules into a Lean-side active rune or simp-set model instead of treating them as display-only metadata."
+    , if replayState.theoryTimeline.isEmpty then
+        none
+      else
+        some "Translate ACL2's interpreted theory timeline into Lean-side simp/grind configuration instead of leaving theory changes as display-only metadata."
     , if artifact.hint_events.isEmpty then
         none
       else
@@ -386,6 +391,18 @@ private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List
         none
       else
         some "Map ACL2's emitted induction scheme into a Lean induction candidate instead of reconstructing it from scratch."
+    , if replayState.inductionSummary?.isNone then
+        none
+      else
+        some "Use ACL2's selected induction candidate directly in the next Lean replay step instead of re-deriving it manually."
+    , if replayState.doNotInductSummary?.isNone then
+        none
+      else
+        some "Respect ACL2's do-not-induct guidance when choosing between simplification and induction on the Lean side."
+    , if replayState.useTimeline.isEmpty then
+        none
+      else
+        some "Try ACL2's concrete use timeline before broad manual lemma search."
     , if artifact.warnings.isEmpty then
         none
       else
@@ -393,6 +410,7 @@ private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List
     ].filterMap id
 
 private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
+  let replayState := artifact.replayState
   dedupStrings <|
     [ s!"Source ACL2 book: {sourcePath}"
     , s!"ACL2 loaded book: {artifact.resolved_book}"
@@ -410,6 +428,7 @@ private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.Dynam
       (match artifact.prover_steps with
         | some steps => [s!"ACL2 prover steps: {steps}"]
         | none => []) ++
+      replayState.noteLines ++
       (artifact.actions.map actionNote) ++
       (artifact.actions.foldr
         (fun action acc =>
@@ -532,8 +551,12 @@ private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.Dynam
 def snapshotOfDynamicHints
     (sourcePath theoremName : String)
     (artifact : ACL2.HintBridge.DynamicArtifact) : Snapshot :=
+  let replayState := artifact.replayState
+  let selectedInduction := replayState.inductionSummary?.getD "none"
+  let doNotInduct := replayState.doNotInductSummary?.getD "none"
+  let otfFlag := replayState.otfFlag.getD "none"
   { theoremName := s!"ACL2 emitted hints for {theoremName}"
-    goal := s!"ACL2 dynamic summary:\n  {artifact.summary_form}\n\nDynamic proof context:\n  checkpoints: {artifact.checkpoints.length}\n  lifecycle progress events: {artifact.progress.length}\n  candidate actions: {artifact.actions.length}\n  observations: {artifact.observations.length}\n  warnings: {artifact.warnings.length}\n  induction summaries: {artifact.inductions.length}\n  summary rules: {artifact.summary_rules.length}\n  hint-events: {artifact.hint_events.length}\n  prover steps: {artifact.prover_steps.getD 0}"
+    goal := s!"ACL2 dynamic summary:\n  {artifact.summary_form}\n\nDynamic proof context:\n  checkpoints: {artifact.checkpoints.length}\n  lifecycle progress events: {artifact.progress.length}\n  candidate actions: {artifact.actions.length}\n  theory timeline entries: {replayState.theoryTimeline.length}\n  replay use suggestions: {replayState.useTimeline.length}\n  selected induction: {selectedInduction}\n  do-not-induct: {doNotInduct}\n  otf-flg: {otfFlag}\n  observations: {artifact.observations.length}\n  warnings: {artifact.warnings.length}\n  induction summaries: {artifact.inductions.length}\n  summary rules: {artifact.summary_rules.length}\n  hint-events: {artifact.hint_events.length}\n  prover steps: {artifact.prover_steps.getD 0}"
     checkpoints := dynamicCheckpoints artifact
     runes := dynamicRunes artifact
     nextMoves := dynamicNextMoves artifact
@@ -574,7 +597,7 @@ private def dynamicTheoryItemsSurfaceInRunes : Bool :=
       stderr := ""
       exit_code := 0
     }
-  dynamicRunes artifact = ["disable floor"]
+  dynamicRunes artifact = ["theory-step hint-event: disable floor"]
 
 #guard dynamicTheoryItemsSurfaceInRunes
 
@@ -676,7 +699,10 @@ private def dynamicStructuredPayloadsSurfaceInNotes : Bool :=
       exit_code := 0
     }
   let notes := (snapshotOfDynamicHints "acl2_samples/demo.lisp" "demo" artifact).notes
-  notes.any (fun note => note.contains "action-clause-processor hint-event/clause-processor:" && note.toLower.contains "flag-is-cp") &&
+  notes.any (fun note => note.contains "Replay induction: (make-prog1-induction i n) using MAKE-PROG1-INDUCTION") &&
+    notes.any (fun note => note.contains "Replay otf-flg: T") &&
+    notes.any (fun note => note.contains "Replay use: transcript-hint @ Goal: use note-3 with p := p, q := q") &&
+    notes.any (fun note => note.contains "action-clause-processor hint-event/clause-processor:" && note.toLower.contains "flag-is-cp") &&
     notes.any (fun note => note.contains "action-use-instance transcript-hint/use:" && note.toLower.contains "note-3") &&
     notes.any (fun note => note.contains "action-use-binding transcript-hint/use:" && note.contains "p := p") &&
     notes.any (fun note => note.contains "action-use-binding transcript-hint/use:" && note.contains "q := q") &&
