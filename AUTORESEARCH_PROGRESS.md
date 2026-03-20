@@ -717,3 +717,41 @@ Next best ideas:
 1. start executing the accumulated dynamic replay actions against Lean goals, especially now that `use` guidance can carry checkpoint-local targeting from the oracle path
 2. enrich the dynamic bridge with more checkpoint-local structure only when ACL2 emits it in real transcripts, keeping theorem/sample coverage ahead of speculative schema growth
 3. decide when the recent dynamic hint-bridge slices are coherent enough to promote together to `main` as one stable replay-infrastructure batch
+
+## 2026-03-19 Iteration 20
+
+Completed this iteration:
+
+- taught `scripts/acl2_hint_bridge.py` to preserve ACL2 goal targets for transcript-recovered hint actions instead of flattening recovered `:HINTS` clauses into goal-less replay suggestions
+- split summary `Hint-events:` action extraction from transcript-echoed `DEFTHM` hint extraction, so summary events still yield generic actions while transcript-only guidance now surfaces as `transcript-hint` actions targeted at `Goal`, `Goal'''`, or `Subgoal ...`
+- added focused regressions for goal-targeted transcript hints, including a synthetic multi-goal transcript plus real transcript-echoed `ev$-def-fact` / `apply$-badgep-hons-get-lemma` coverage
+- updated `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md` so the documented dynamic bridge surface matches the new goal-aware transcript-hint behavior
+- tracked this slice in Linear as `ALOK-559`
+
+Verification:
+
+- research branch commit `078c8ec`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `078c8ec`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/die-hard-work.lisp --theorem nonnegative-integer-quotient-gcd-exceeds-1 | sed -n '20,70p'`
+- research branch commit `078c8ec`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/apply-model-apply.lisp --theorem 'ev$-def-fact' | rg -n 'transcript-hint|expand|actions|hint_events|Goal'`
+- research branch commit `078c8ec`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp nonnegative-integer-quotient-gcd-exceeds-1 | sed -n '1,120p'`
+- research branch commit `078c8ec`: `lake build`
+- research branch commit `078c8ec`: `uv run python Verify.py`
+- pushed research branch commit `078c8ec` to `origin/autoresearch/mar19-acl2lean`
+- after the push, `gh run list --branch autoresearch/mar19-acl2lean --limit 6` showed GitHub Actions run `23329505758` for `Preserve goal-targeted transcript hint actions` as `in_progress`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- `nonnegative-integer-quotient-gcd-exceeds-1` is now a concrete acceptance test for transcript-goal preservation: Lean sees the summary `:USE` action plus transcript-targeted `adjust theory ... in Goal` and instance-specific `use ... in Goal` actions that ACL2 only exposed in the echoed `DEFTHM`
+- `ev$-def-fact` no longer degrades to a goal-less transcript recovery result: its transcript-only `:EXPAND ((EV$ X A))` guidance now reaches Lean as `expand ((EV$ X A)) in Goal`
+- this is a real hint-generator-path advance because the bridge now keeps more of ACL2's theorem-local proof intent attached to the goal where ACL2 emitted it, but I did not promote it to `main` yet because the broader dynamic hint-action workflow still lives on the research branch
+
+Next best ideas:
+
+1. start executing the newly goal-targeted transcript actions against Lean replay state, beginning with `use`, `in-theory`, `expand`, and `do-not-induct`
+2. look for a real ACL2 sample that echoes multi-goal `DEFTHM` hints at runtime so transcript-goal preservation is exercised on more than the synthetic regression path
+3. recover additional theorem-level proof-search directives such as `:otf-flg` only when they can be surfaced cleanly as replay-relevant Lean metadata instead of adding more flat transcript text
