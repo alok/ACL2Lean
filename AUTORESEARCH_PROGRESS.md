@@ -1269,3 +1269,43 @@ Next best ideas:
 1. execute the interpreted replay state against Lean goals, starting with theory disables and simple theorem/instance `use` steps instead of only surfacing them in the CLI/UI
 2. add the same replay-state treatment for `split-goal` and `typed-term` actions so those dynamic hints also stop relying on flat summaries
 3. decide whether the current dynamic hint stack from ACL2 extraction through replay-state interpretation is now coherent enough for a `main` promotion batch
+
+## 2026-03-20 Iteration 33
+
+Completed this iteration:
+
+- added dedicated Lean-side `SplitGoalPayload` and `TypedTermPayload` decoding in `ACL2Lean.HintBridge`, so dynamic ACL2 splitter notes and typed-term observations no longer stop at flat action summaries once they cross back into Lean
+- extended `DynamicAction.structuredLines` and `DynamicArtifact.replayState` to normalize `split-goal` into a checkpoint-local split timeline and `typed-term` into parsed typed-term foci, instead of leaving both paths outside the interpreted replay summary
+- updated `acl2lean hints` to render `splitter` / `split-term` fields on actions plus `split-timeline` and normalized `typed-terms` entries under `replay-state:`
+- updated `ACL2Lean.ProofMode` to surface the same structure through dynamic checkpoint/action notes and next-move guidance, including `action-splitter`, `action-split-term`, and `action-typed-term`
+- added Lean guard coverage for the new payload parsers and replay-state/proof-mode surfaces, and updated `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md` to describe the wider replay-state model
+- tracked the slice in Linear as `ALOK-573`
+
+Verification:
+
+- research branch commit `05a84e6`: `lean-lsp-mcp` diagnostics on `ACL2Lean/HintBridge.lean`
+- research branch commit `05a84e6`: `lake build ACL2Lean.HintBridge`
+- research branch commit `05a84e6`: `lake build ACL2Lean.ProofMode Main`
+- research branch commit `05a84e6`: `lake build acl2lean`
+- research branch commit `05a84e6`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp exists-gcd-prog | sed -n '82,160p'`
+- research branch commit `05a84e6`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-log2.lisp natp-clog2 | sed -n '34,90p'`
+- research branch commit `05a84e6`: `lake build`
+- research branch commit `05a84e6`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `05a84e6`: `uv run python Verify.py`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- this closes the remaining replay-state/display gap for two theorem-local hint classes that ACL2 emits frequently in the local corpus: splitter guidance and typed-term focus
+- real `exists-gcd-prog` output now carries a parsed `splitter: if-intro` plus `split-timeline: splitter @ Goal'' ...`, and real `natp-clog2` output now renders the normalized typed-term directly in both the action details and replay summary
+- I did not promote this slice to `main` yet because it still deepens the research-branch dynamic proof-mode stack; the cleaner mainline boundary is likely the whole dynamic hint bridge batch once replay execution begins
+
+Next best ideas:
+
+1. execute the interpreted replay state against Lean goals, starting with checkpoint-local split guidance, theory disables, and simple theorem/instance `use` steps
+2. use the new split timeline and typed-term focus to group proof-mode next moves by checkpoint instead of listing all ACL2 suggestions flatly
+3. decide whether the dynamic hint bridge from ACL2 extraction through replay-state normalization is now coherent enough for a single `main` promotion batch
