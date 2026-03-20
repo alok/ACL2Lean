@@ -413,6 +413,23 @@ private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.Dynam
       (artifact.actions.map actionNote) ++
       (artifact.actions.foldr
         (fun action acc =>
+          match action.usePayload? with
+          | some payload =>
+              let targetLines :=
+                match payload.bindings with
+                | [] =>
+                    match payload.target with
+                    | .theorem expr => [s!"action-use-theorem {action.source}/{action.kind}: {expr}"]
+                    | .ref _ => []
+                | _ => [s!"action-use-instance {action.source}/{action.kind}: {payload.target.instanceSummary}"]
+              let bindingLines :=
+                payload.bindings.map (fun binding =>
+                  s!"action-use-binding {action.source}/{action.kind}: {binding.summary}")
+              targetLines ++ bindingLines ++ acc
+          | none => acc)
+        []) ++
+      (artifact.actions.foldr
+        (fun action acc =>
           (action.theoryItems.map (fun item => s!"action-theory {action.source}/{action.kind}: {item}")) ++ acc)
         []) ++
       (artifact.actions.foldr
@@ -585,6 +602,13 @@ private def dynamicStructuredPayloadsSurfaceInNotes : Bool :=
             targets := ["FLAG::FLAG-IS-CP"]
             detail := "(:CLAUSE-PROCESSOR FLAG::FLAG-IS-CP)"
           }
+        , { kind := "use"
+            source := "transcript-hint"
+            summary := "use (:INSTANCE NOTE-3 (P P) (Q Q)) in Goal"
+            goal_target := some "Goal"
+            targets := ["(:INSTANCE NOTE-3 (P P) (Q Q))", "Goal"]
+            detail := "Goal: (:USE ((:INSTANCE NOTE-3 (P P) (Q Q))))"
+          }
         , { kind := "otf-flg"
             source := "transcript-option"
             summary := "set otf-flg T"
@@ -653,6 +677,9 @@ private def dynamicStructuredPayloadsSurfaceInNotes : Bool :=
     }
   let notes := (snapshotOfDynamicHints "acl2_samples/demo.lisp" "demo" artifact).notes
   notes.any (fun note => note.contains "action-clause-processor hint-event/clause-processor:" && note.toLower.contains "flag-is-cp") &&
+    notes.any (fun note => note.contains "action-use-instance transcript-hint/use:" && note.toLower.contains "note-3") &&
+    notes.any (fun note => note.contains "action-use-binding transcript-hint/use:" && note.contains "p := p") &&
+    notes.any (fun note => note.contains "action-use-binding transcript-hint/use:" && note.contains "q := q") &&
     notes.any (fun note => note.contains "action-otf-flg transcript-option/otf-flg: T") &&
     notes.any (fun note => note.contains "action-induct-term induction/induct:" && note.toLower.contains "make-prog1-induction") &&
     notes.any (fun note => note.contains "action-induction-rule induction/induct: MAKE-PROG1-INDUCTION") &&

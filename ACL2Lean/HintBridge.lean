@@ -40,6 +40,21 @@ structure RewriteOverlapPayload where
   existingRule : String
   deriving Inhabited, Repr
 
+structure UseInstanceBinding where
+  name : String
+  value : SExpr
+  deriving Inhabited, Repr
+
+inductive UseTarget
+  | ref (expr : SExpr)
+  | theorem (expr : SExpr)
+  deriving Inhabited, Repr
+
+structure UsePayload where
+  target : UseTarget
+  bindings : List UseInstanceBinding := []
+  deriving Inhabited, Repr
+
 structure DynamicCheckpoint where
   kind : String
   label : String
@@ -151,6 +166,77 @@ private def payloadExprsFromPayload (payload : String) : List SExpr :=
         else
           [expr]
 
+namespace UseInstanceBinding
+
+def ofSExpr? : SExpr → Option UseInstanceBinding
+  | expr => do
+      let parts ← expr.toList?
+      match parts with
+      | [lhs, rhs] =>
+          let varName :=
+            match lhs with
+            | .atom (.symbol sym) => sym.name
+            | .atom (.keyword key) => s!":{key}"
+            | _ => toString lhs
+          some { name := varName, value := rhs }
+      | _ => none
+
+def summary (binding : UseInstanceBinding) : String :=
+  s!"{binding.name} := {binding.value}"
+
+end UseInstanceBinding
+
+namespace UseTarget
+
+def ofSExpr (expr : SExpr) : UseTarget :=
+  match expr.toList? with
+  | some (.atom (.keyword key) :: [body]) =>
+      if key = "theorem" then
+        .theorem body
+      else
+        .ref expr
+  | _ => .ref expr
+
+def summary : UseTarget → String
+  | .ref expr => toString expr
+  | .theorem expr => toString expr
+
+def structuredLine? : UseTarget → Option String
+  | .ref _ => none
+  | .theorem expr => some s!"use-theorem: {expr}"
+
+def instanceSummary : UseTarget → String
+  | .ref expr => toString expr
+  | .theorem expr => s!"theorem {expr}"
+
+end UseTarget
+
+namespace UsePayload
+
+def ofSExpr (expr : SExpr) : UsePayload :=
+  match expr.toList? with
+  | some (.atom (.keyword key) :: target :: rest) =>
+      if key = "instance" then
+        { target := UseTarget.ofSExpr target
+          bindings := rest.filterMap UseInstanceBinding.ofSExpr? }
+      else
+        { target := UseTarget.ofSExpr expr }
+  | _ => { target := UseTarget.ofSExpr expr }
+
+def structuredLines (payload : UsePayload) (indent : Nat := 0) : List String :=
+  let targetLines :=
+    match payload.bindings with
+    | [] =>
+        match payload.target.structuredLine? with
+        | some line => [s!"{renderIndent indent}{line}"]
+        | none => []
+    | _ => renderLabeledItems "use-instance" [payload.target.instanceSummary] indent
+  let bindingLines :=
+    renderLabeledItems "binding" (payload.bindings.map UseInstanceBinding.summary) indent
+  targetLines ++ bindingLines
+
+end UsePayload
+
 namespace DynamicAction
 
 def nonGoalTargets (action : DynamicAction) : List String :=
@@ -168,6 +254,18 @@ def payloadExpr? (action : DynamicAction) : Option SExpr := do
 def payloadExprs (action : DynamicAction) : List SExpr :=
   match action.payload? with
   | some payload => payloadExprsFromPayload payload
+  | none => []
+
+def usePayload? (action : DynamicAction) : Option UsePayload := do
+  if action.kind != "use" then
+    none
+  else
+    let expr ← action.payloadExpr?
+    some (UsePayload.ofSExpr expr)
+
+def useLines (action : DynamicAction) (indent : Nat := 0) : List String :=
+  match action.usePayload? with
+  | some payload => payload.structuredLines indent
   | none => []
 
 def theoryExpr? (action : DynamicAction) : Option TheoryExpr := do
@@ -290,6 +388,7 @@ def rewriteOverlapPayload? (action : DynamicAction) : Option RewriteOverlapPaylo
 
 def structuredLines (action : DynamicAction) (indent : Nat := 0) : List String :=
   match action.kind with
+  | "use" => action.useLines indent
   | "in-theory" => action.theoryLines indent
   | "clause-processor" => renderLabeledItems "clause-processor" action.clauseProcessorItems indent
   | "otf-flg" =>
@@ -464,6 +563,55 @@ private def dynamicExpandPayloadParses : Bool :=
     (action.structuredLines 2).any (fun line => line.contains "expand:" && line.contains "ev$")
 
 #guard dynamicExpandPayloadParses
+
+private def dynamicUsePayloadParses : Bool :=
+  let theoremAction : DynamicAction :=
+    { kind := "use"
+      source := "hint-event"
+      summary := "use NOTE-3"
+      goal_target := none
+      targets := ["NOTE-3"]
+      detail := "(:USE NOTE-3)"
+    }
+  let instanceAction : DynamicAction :=
+    { kind := "use"
+      source := "transcript-hint"
+      summary := "use (:INSTANCE NOTE-3 (P P) (Q Q)) in Goal"
+      goal_target := some "Goal"
+      targets := ["(:INSTANCE NOTE-3 (P P) (Q Q))", "Goal"]
+      detail := "Goal: (:USE ((:INSTANCE NOTE-3 (P P) (Q Q))))"
+    }
+  let theoremHintAction : DynamicAction :=
+    { kind := "use"
+      source := "hint-event"
+      summary := "use (:THEOREM (IMPLIES (P X) (Q X)))"
+      goal_target := none
+      targets := ["(:THEOREM (IMPLIES (P X) (Q X)))"]
+      detail := "(:USE (:THEOREM (IMPLIES (P X) (Q X))))"
+    }
+  theoremAction.useLines 2 = [] &&
+    (match instanceAction.usePayload? with
+      | some payload =>
+          payload.bindings.map UseInstanceBinding.summary = ["p := p", "q := q"]
+      | none => false) &&
+    (instanceAction.structuredLines 2).any (fun line =>
+      line.contains "use-instance:" && line.contains "note-3") &&
+    (instanceAction.structuredLines 2).any (fun line =>
+      line.contains "binding:") &&
+    (instanceAction.structuredLines 2).any (fun line =>
+      line.contains "p := p") &&
+    (instanceAction.structuredLines 2).any (fun line =>
+      line.contains "q := q") &&
+    (match theoremHintAction.usePayload? with
+      | some payload =>
+          match payload.target with
+          | .theorem expr => (toString expr).contains "(implies (p x) (q x))"
+          | _ => false
+      | none => false) &&
+    (theoremHintAction.structuredLines 2).any (fun line =>
+      line.contains "use-theorem:" && line.contains "(implies (p x) (q x))")
+
+#guard dynamicUsePayloadParses
 
 private def dynamicClauseProcessorPayloadParses : Bool :=
   let action : DynamicAction :=
