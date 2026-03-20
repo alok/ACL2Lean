@@ -645,3 +645,41 @@ Next best ideas:
 1. start executing the accumulated dynamic replay actions against Lean goals, beginning with `use`, `disable-definition`, `bind-free-variable`, split, and theory-adjustment steps
 2. capture lifecycle lines such as `*1 ... is pushed for proof by induction`, `*1 is COMPLETED!`, and `Thus key checkpoint ... is COMPLETED!` as structured dynamic progress metadata instead of leaving them only inside checkpoint text blocks
 3. extend warning parsing to other replay-relevant ACL2 guidance families once a real sample surfaces them, but keep execution of the already-extracted action set ahead of pure schema growth
+
+## 2026-03-19 Iteration 18
+
+Completed this iteration:
+
+- taught `scripts/acl2_hint_bridge.py` to recover ACL2 lifecycle/progress lines as structured dynamic metadata, starting with induction-push markers, subproof completion lines, and `Thus key checkpoint ... is COMPLETED!` notices
+- extended `ACL2Lean.HintBridge` with a first-class `DynamicProgress` stream and updated the CLI rendering so lifecycle events show up distinctly from checkpoint text in `acl2lean hints ...`
+- updated `ACL2Lean.ProofMode` so dynamic hint snapshots count lifecycle events separately, render them as dedicated proof-mode cards, and mark matching emitted checkpoints as `done` when ACL2 reports checkpoint completion
+- added focused parser regression coverage for the new lifecycle extraction path and updated `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md` so the documented dynamic bridge surface includes lifecycle progress capture
+- tracked this slice in Linear as `ALOK-557`
+
+Verification:
+
+- research branch commit `ae66f35`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `ae66f35`: `lean-lsp-mcp` diagnostics on `ACL2Lean/HintBridge.lean` and `ACL2Lean/ProofMode.lean`
+- research branch commit `ae66f35`: `lake build ACL2Lean.HintBridge ACL2Lean.ProofMode Main`
+- research branch commit `ae66f35`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-log2.lisp natp-clog2 | sed -n '65,75p'`
+- research branch commit `ae66f35`: `lake build`
+- research branch commit `ae66f35`: `uv run python Verify.py`
+- pushed research branch commit `ae66f35` to `origin/autoresearch/mar19-acl2lean`
+- after the push, `gh run list --branch autoresearch/mar19-acl2lean --limit 6` showed GitHub Actions run `23328938391` for `Capture ACL2 lifecycle progress metadata` as `in_progress`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- `natp-clog2` is now a concrete acceptance test for emitted ACL2 lifecycle state: the dynamic bridge surfaces `[induction-push]`, `[subproof-complete]`, and `[checkpoint-complete]` entries even when ACL2 does not print a full `A key checkpoint` block for the initial goal
+- the CLI now keeps lifecycle lines visible ahead of the long subgoal list, and the proof-mode panel can distinguish static checkpoint structure from emitted progress transitions instead of flattening everything into checkpoint text or `raw_excerpt`
+- this is a real hint-generator-path advance because it captures more of ACL2's proof search behavior as typed Lean-visible state, but I did not promote it to `main` yet because the dynamic action/progress workflow still lives entirely on the research branch
+
+Next best ideas:
+
+1. start executing the accumulated dynamic replay actions against Lean goals, beginning with `use`, `disable-definition`, `bind-free-variable`, split, theory-adjustment, and typed-term-guided induction setup
+2. use the new lifecycle/progress events to drive actual replay-state transitions in proof mode instead of only displaying them as emitted metadata
+3. extend transcript-echo recovery beyond `:HINTS` or add new warning/action families only when a real ACL2 sample proves they are needed
