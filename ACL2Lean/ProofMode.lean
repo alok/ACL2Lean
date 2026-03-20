@@ -257,7 +257,7 @@ private def dynamicRunes (artifact : ACL2.HintBridge.DynamicArtifact) : List Str
   let nonTheoryHintEvents :=
     artifact.hint_events.filter (fun event => !(inlineBlock event).startsWith "(:IN-THEORY")
   dedupStrings <|
-    artifact.summary_rules ++
+    (artifact.summaryRuleItems.map (fun item => s!"summary-rule {item}")) ++
       (nonTheoryHintEvents.map (fun event => s!"hint-event {event}")) ++
       (replayState.theoryTimeline.map (fun line => s!"theory-step {line}")) ++
       (artifact.splitter_rules.map (fun rule => s!"splitter {rule}")) ++
@@ -634,6 +634,42 @@ private def dynamicTheoryItemsSurfaceInRunes : Bool :=
   dynamicRunes artifact = ["theory-step hint-event: disable floor"]
 
 #guard dynamicTheoryItemsSurfaceInRunes
+
+private def dynamicSummaryRulesSurfaceInRunes : Bool :=
+  let artifact : ACL2.HintBridge.DynamicArtifact :=
+    { book := "acl2_samples/demo.lisp"
+      resolved_book := "acl2_samples/demo.lisp"
+      load_steps := ["acl2_samples/demo.lisp"]
+      load_note := ""
+      requested_theorem := "demo"
+      theorem_name := "DEMO"
+      status := "proved"
+      summary_form := "( DEFTHM DEMO ...)"
+      summary_rules :=
+        [ "(:REWRITE NBR-CALLS-FLOG2-UPPER-BOUND)"
+        , "(:FAKE-RUNE-FOR-LINEAR NIL)"
+        ]
+      hint_events := []
+      splitter_rules := []
+      warning_kinds := []
+      summary_time := ""
+      prover_steps := none
+      actions := []
+      checkpoints := []
+      progress := []
+      observations := []
+      warnings := []
+      inductions := []
+      raw_excerpt := []
+      stderr := ""
+      exit_code := 0
+    }
+  dynamicRunes artifact =
+      [ "summary-rule rewrite nbr-calls-flog2-upper-bound"
+      , "summary-rule fake-rune-for-linear NIL"
+      ]
+
+#guard dynamicSummaryRulesSurfaceInRunes
 
 private def dynamicStructuredPayloadsSurfaceInNotes : Bool :=
   let artifact : ACL2.HintBridge.DynamicArtifact :=

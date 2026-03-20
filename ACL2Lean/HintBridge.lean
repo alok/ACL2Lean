@@ -66,6 +66,12 @@ structure TypedTermPayload where
   goalTarget : Option String := none
   deriving Inhabited, Repr
 
+structure SummaryRule where
+  kind : String
+  target? : Option SExpr := none
+  extras : List SExpr := []
+  deriving Inhabited, Repr
+
 structure DynamicCheckpoint where
   kind : String
   label : String
@@ -161,6 +167,41 @@ private def renderLabeledItems (label : String) (items : List String) (indent : 
   | _ =>
       s!"{renderIndent indent}{label}:" ::
         items.map (fun item => s!"{renderIndent (indent + 2)}- {item}")
+
+namespace SummaryRule
+
+def ofSExpr? : SExpr → Option SummaryRule
+  | .atom (.keyword key) => some { kind := key.map Char.toLower }
+  | expr => do
+      let items ← expr.toList?
+      match items with
+      | .atom (.keyword key) :: rest =>
+          match rest with
+          | [] => some { kind := key.map Char.toLower }
+          | target :: extras =>
+              some { kind := key.map Char.toLower, target? := some target, extras }
+      | _ => none
+
+def ofString? (text : String) : Option SummaryRule := do
+  let expr ← parseSingleSExpr? text
+  ofSExpr? expr
+
+def summary (rule : SummaryRule) : String :=
+  let extraSummary := String.intercalate "; " (rule.extras.map toString)
+  match rule.target?, extraSummary.isEmpty with
+  | none, true => rule.kind
+  | none, false => s!"{rule.kind} with {extraSummary}"
+  | some target, true => s!"{rule.kind} {target}"
+  | some target, false => s!"{rule.kind} {target} with {extraSummary}"
+
+def structuredLines (rule : SummaryRule) (indent : Nat := 0) : List String :=
+  renderLabeledItems "kind" [rule.kind] indent ++
+    (match rule.target? with
+      | some target => renderLabeledItems "target" [toString target] indent
+      | none => []) ++
+    renderLabeledItems "extra" (rule.extras.map toString) indent
+
+end SummaryRule
 
 private def payloadExprsFromPayload (payload : String) : List SExpr :=
   let trimmed := payload.trimAscii.toString
@@ -605,6 +646,15 @@ end DynamicReplayState
 
 namespace DynamicArtifact
 
+def summaryRulePayloads (artifact : DynamicArtifact) : List SummaryRule :=
+  artifact.summary_rules.filterMap SummaryRule.ofString?
+
+def summaryRuleItems (artifact : DynamicArtifact) : List String :=
+  artifact.summary_rules.map fun ruleText =>
+    match SummaryRule.ofString? ruleText with
+    | some rule => rule.summary
+    | none => ruleText
+
 def replayState (artifact : DynamicArtifact) : DynamicReplayState :=
   let state : DynamicReplayState :=
     artifact.actions.foldl
@@ -814,7 +864,7 @@ def renderLines (artifact : DynamicArtifact) : List String :=
       []
     else
       [s!"summary: {artifact.summary_form}"]
-  let summaryRules := renderSimpleSection "summary-rules:" artifact.summary_rules
+  let summaryRules := renderSimpleSection "summary-rules:" artifact.summaryRuleItems
   let hintEvents := renderSimpleSection "hint-events:" artifact.hint_events
   let splitterRules := renderSimpleSection "splitter-rules:" artifact.splitter_rules
   let warningKinds :=
@@ -1120,6 +1170,64 @@ private def dynamicRewriteOverlapPayloadParses : Bool :=
       line.contains "existing-rule:" && line.contains "|(+ y x)|")
 
 #guard dynamicRewriteOverlapPayloadParses
+
+private def dynamicSummaryRuleParses : Bool :=
+  let rewriteRule? := SummaryRule.ofString? "(:REWRITE NBR-CALLS-FLOG2-UPPER-BOUND)"
+  let fakeRune? := SummaryRule.ofString? "(:FAKE-RUNE-FOR-LINEAR NIL)"
+  (match rewriteRule? with
+    | some rule =>
+        rule.kind = "rewrite" &&
+          rule.target?.map toString = some "nbr-calls-flog2-upper-bound" &&
+          rule.extras.isEmpty &&
+          rule.summary = "rewrite nbr-calls-flog2-upper-bound"
+    | none => false) &&
+    (match fakeRune? with
+      | some rule =>
+          rule.kind = "fake-rune-for-linear" &&
+            rule.target?.map toString = some "NIL" &&
+            rule.summary = "fake-rune-for-linear NIL" &&
+            ((rule.structuredLines 2).any (fun line =>
+              line.contains "target:" && line.contains "NIL")
+            )
+      | none => false)
+
+#guard dynamicSummaryRuleParses
+
+private def dynamicSummaryRulesRenderStructured : Bool :=
+  let artifact : DynamicArtifact :=
+    { book := "acl2_samples/demo.lisp"
+      resolved_book := "acl2_samples/demo.lisp"
+      load_steps := ["acl2_samples/demo.lisp"]
+      load_note := ""
+      requested_theorem := "demo"
+      theorem_name := "DEMO"
+      status := "proved"
+      summary_form := "( DEFTHM DEMO ...)"
+      summary_rules :=
+        [ "(:REWRITE NBR-CALLS-FLOG2-UPPER-BOUND)"
+        , "(:FAKE-RUNE-FOR-LINEAR NIL)"
+        ]
+      hint_events := []
+      splitter_rules := []
+      warning_kinds := []
+      summary_time := ""
+      prover_steps := none
+      actions := []
+      checkpoints := []
+      progress := []
+      observations := []
+      warnings := []
+      inductions := []
+      raw_excerpt := []
+      stderr := ""
+      exit_code := 0
+    }
+  artifact.summaryRuleItems =
+      ["rewrite nbr-calls-flog2-upper-bound", "fake-rune-for-linear NIL"] &&
+    (renderLines artifact).any (·.contains "rewrite nbr-calls-flog2-upper-bound") &&
+    (renderLines artifact).any (·.contains "fake-rune-for-linear NIL")
+
+#guard dynamicSummaryRulesRenderStructured
 
 private def dynamicReplayStateSummarizesActions : Bool :=
   let artifact : DynamicArtifact :=
