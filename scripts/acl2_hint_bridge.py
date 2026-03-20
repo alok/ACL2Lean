@@ -17,6 +17,7 @@ ACL2_ERROR_RE = re.compile(r"^ACL2 Error\b")
 FAILED_MARKER = "******** FAILED ********"
 GOAL_LINE_RE = re.compile(r"^Goal(?:'+)?$")
 SUBGOAL_LINE_RE = re.compile(r"^Subgoal\b.+$")
+PROMPT_RE = re.compile(r"^[^()\s]+\s+!>+")
 
 
 def normalize_name(name: str) -> str:
@@ -187,16 +188,56 @@ def resolve_load_plans(book: str, system_root: Path | None = None) -> list[LoadP
 
 def previous_prompt_index(lines: list[str], idx: int) -> int:
     for j in range(idx, -1, -1):
-        if lines[j].startswith("ACL2 !>"):
+        if PROMPT_RE.match(lines[j].lstrip()):
             return j
     return 0
 
 
 def next_prompt_index(lines: list[str], idx: int) -> int:
     for j in range(idx + 1, len(lines)):
-        if lines[j].startswith("ACL2 !>"):
+        if PROMPT_RE.match(lines[j].lstrip()):
             return j
     return len(lines)
+
+
+def previous_summary_index(lines: list[str], idx: int, lower_bound: int = 0) -> int | None:
+    for j in range(idx, lower_bound - 1, -1):
+        if lines[j].strip() == "Summary":
+            return j
+    return None
+
+
+def theorem_summary_end(lines: list[str], summary_idx: int, theorem_name: str) -> int:
+    for j in range(summary_idx + 1, len(lines)):
+        stripped = lines[j].strip()
+        if stripped == theorem_name:
+            return j + 1
+        if PROMPT_RE.match(lines[j].lstrip()):
+            return j
+    return len(lines)
+
+
+def theorem_excerpt(
+    lines: list[str],
+    matches: list[tuple[int, str]],
+    match_idx: int,
+) -> list[str]:
+    form_idx, theorem_name = matches[match_idx]
+    prompt_start = previous_prompt_index(lines, form_idx)
+    summary_idx = previous_summary_index(lines, form_idx, prompt_start)
+    if summary_idx is None:
+        summary_idx = form_idx
+
+    start = prompt_start
+    if match_idx > 0:
+        prev_form_idx, prev_theorem_name = matches[match_idx - 1]
+        prev_prompt_start = previous_prompt_index(lines, prev_form_idx)
+        prev_summary_idx = previous_summary_index(lines, prev_form_idx, prev_prompt_start)
+        if prev_summary_idx is not None:
+            start = max(start, theorem_summary_end(lines, prev_summary_idx, prev_theorem_name))
+
+    end = theorem_summary_end(lines, summary_idx, theorem_name)
+    return [line.rstrip("\n") for line in lines[start:end]]
 
 
 def collect_checkpoint_blocks(lines: list[str]) -> list[dict[str, str]]:
@@ -374,7 +415,7 @@ def parse_summary(lines: list[str], theorem_name: str) -> dict[str, object]:
 
     for raw_line in lines[start + 1 :]:
         line = raw_line.rstrip()
-        if line.strip() == theorem_name or line.startswith("ACL2 !>"):
+        if line.strip() == theorem_name or PROMPT_RE.match(line.lstrip()):
             break
         match = summary_field(line.strip())
         if match:
@@ -392,13 +433,19 @@ def parse_summary(lines: list[str], theorem_name: str) -> dict[str, object]:
 
 def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
     theorem_norm = normalize_name(theorem)
-    matches: list[tuple[int, str]] = []
+    all_matches: list[tuple[int, str]] = []
     for idx, line in enumerate(lines):
         match = THEOREM_FORM_RE.search(line)
-        if match and normalize_name(match.group(1)) == theorem_norm:
-            matches.append((idx, match.group(1)))
+        if match:
+            all_matches.append((idx, match.group(1)))
 
-    if not matches:
+    target_match_idx: int | None = None
+    for i, (_, theorem_name) in enumerate(all_matches):
+        if normalize_name(theorem_name) == theorem_norm:
+            target_match_idx = i
+            break
+
+    if target_match_idx is None:
         failure = detect_acl2_failure(lines)
         return {
             "status": "failed" if failure else "not-found",
@@ -418,10 +465,8 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
             "raw_excerpt": [line.rstrip("\n") for line in lines[-80:]],
         }
 
-    idx, theorem_name = matches[0]
-    start = previous_prompt_index(lines, idx)
-    end = next_prompt_index(lines, idx)
-    excerpt = [line.rstrip("\n") for line in lines[start:end]]
+    idx, theorem_name = all_matches[target_match_idx]
+    excerpt = theorem_excerpt(lines, all_matches, target_match_idx)
     summary = parse_summary(excerpt, theorem_name)
 
     return {

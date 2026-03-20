@@ -26,7 +26,7 @@ The repo now carries two early UI integration paths for co-designing an ACL-flav
 
 - **`lean-tui` + `LeanPrism`**: a terminal infoview that follows the active proof/function from your editor.
 - **ProofWidgets infoview panel**: `ACL2Lean/ProofMode.lean` and `ACL2Lean/ProofModeDemo.lean` provide the first ACL-specific panel layout for checkpoints, rune/fact lists, and next moves.
-- **Dynamic ACL2 hint bridge**: `scripts/acl2_hint_bridge.py`, `ACL2Lean/HintBridge.lean`, `acl2lean hints ...`, and `#acl_hint_panel ...` expose theorem-local ACL2-emitted checkpoints, warnings, and induction summaries inside Lean-side tooling.
+- **Dynamic ACL2 hint bridge**: `scripts/acl2_hint_bridge.py`, `ACL2Lean/HintBridge.lean`, `acl2lean hints ...`, and `#acl_hint_panel ...` expose theorem-local ACL2-emitted checkpoints, warnings, and induction summaries inside Lean-side tooling, even when multiple `DEFTHM` summaries share a single ACL2 prompt inside larger `encapsulate` output.
 - **Dynamic rule/hint summary capture**: the same bridge now also preserves ACL2 summary rules, hint-events, warning categories, and prover-step counts, so the dynamic path carries theorem-local theory guidance instead of only raw checkpoint text.
 - **Raw goal/subgoal trace capture**: when ACL2 emits lightweight `Goal'` / `Subgoal ...` progress lines without a full `A key checkpoint` block, the dynamic bridge now promotes those markers into structured checkpoints instead of leaving them trapped in `raw_excerpt`.
 - **Excerpted sample fallback**: when a repo sample is only a local excerpt of a larger ACL2 book, the dynamic hint bridge can now resolve it to the loadable upstream book and required preludes so real ACL2 proof output still reaches Lean.

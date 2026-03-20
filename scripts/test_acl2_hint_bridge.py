@@ -167,6 +167,87 @@ class HintBridgeParsingTests(unittest.TestCase):
             ],
         )
 
+    def test_theorem_section_stays_local_with_multiple_summaries_in_one_prompt(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>
+            ACL2 Warning [Use] in ( DEFTHM FIRST-THM ...):
+            Earlier theorem warning.
+
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM FIRST-THM ...)
+            Rules: ((:REWRITE FIRST-RULE))
+            Warnings:  Use
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+            Prover steps counted:  7
+             FIRST-THM
+            ACL2 Observation in ( DEFTHM SECOND-THM ...):  Second theorem note.
+
+            Subgoal 1
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM SECOND-THM ...)
+            Rules: ((:REWRITE SECOND-RULE))
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+            Prover steps counted:  11
+             SECOND-THM
+            ACL2 !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "second-thm")
+        self.assertEqual(artifact["status"], "proved")
+        self.assertEqual(artifact["summary_form"], "( DEFTHM SECOND-THM ...)")
+        self.assertEqual(artifact["summary_rules"], ["(:REWRITE SECOND-RULE)"])
+        self.assertEqual(artifact["warning_kinds"], [])
+        self.assertEqual(artifact["prover_steps"], 11)
+        self.assertEqual(artifact["observations"], ["ACL2 Observation in ( DEFTHM SECOND-THM ...):  Second theorem note."])
+        self.assertEqual(
+            artifact["checkpoints"],
+            [{"kind": "subgoal", "label": "Subgoal 1", "text": "Subgoal 1"}],
+        )
+        self.assertNotIn("Earlier theorem warning.", "\n".join(artifact["raw_excerpt"]))
+
+    def test_theorem_section_respects_non_acl2_package_prompts(self) -> None:
+        transcript = dedent(
+            """
+            ACL2 !>>
+            Summary
+            Form:  ( DEFTHM FIRST-THM ...)
+            Rules: NIL
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             FIRST-THM
+            MODAPP !>>>(LOCAL
+            ACL2 Observation in ( DEFTHM SECOND-THM ...):  Second theorem note.
+
+            Goal'
+
+            Q.E.D.
+
+            Summary
+            Form:  ( DEFTHM SECOND-THM ...)
+            Rules: NIL
+            Time:  0.00 seconds (prove: 0.00, print: 0.00, other: 0.00)
+             SECOND-THM
+            MODAPP !>>
+            """
+        ).splitlines()
+
+        artifact = bridge.theorem_section(transcript, "second-thm")
+        self.assertEqual(artifact["summary_form"], "( DEFTHM SECOND-THM ...)")
+        self.assertEqual(artifact["observations"], ["ACL2 Observation in ( DEFTHM SECOND-THM ...):  Second theorem note."])
+        self.assertEqual(
+            artifact["checkpoints"],
+            [{"kind": "goal", "label": "Goal'", "text": "Goal'"}],
+        )
+        self.assertTrue(artifact["raw_excerpt"][0].startswith("MODAPP !>>>"))
+
     def test_load_failure_is_reported(self) -> None:
         transcript = dedent(
             """
