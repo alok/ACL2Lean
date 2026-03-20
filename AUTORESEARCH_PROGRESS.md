@@ -830,3 +830,40 @@ Next best ideas:
 1. start executing checkpoint-local `use`, `split-goal`, and `in-theory` actions against Lean replay state now that dynamic actions carry explicit goal targets
 2. preserve checkpoint-local targeting on any other ACL2-emitted guidance that still degrades to goal-less actions, but only when real transcripts exhibit the shape
 3. decide when the recent dynamic hint-bridge/proof-mode slices are coherent enough to promote together to `main` as one stable replay-infrastructure batch
+
+## 2026-03-19 Iteration 23
+
+Completed this iteration:
+
+- taught `scripts/acl2_hint_bridge.py` to recognize ACL2's forward-chaining trigger-term `Non-rec` warning shape, where ACL2 says a concrete trigger term is unlikely to arise unless a non-recursive definition is disabled
+- emitted a typed `disable-definition` action for that warning family, preserving the relevant definition rune, theorem name, and trigger term instead of leaving the guidance trapped in raw warning text
+- added a focused parser regression for the `BADGE-TYPE` transcript shape from the `apply-model` corpus and updated `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md` so the documented dynamic bridge surface now includes forward-chaining trigger-term guidance
+- tracked this slice in Linear as `ALOK-562`
+
+Verification:
+
+- research branch commit `462025a`: `PYTHONPATH=scripts uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `462025a`: `PYTHONPATH=scripts uv run python -m unittest scripts.test_acl2_hint_bridge.HintBridgeParsingTests.test_non_rec_forward_chaining_warning_becomes_disable_definition_action`
+- research branch commit `462025a`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/apply-model-apply.lisp --theorem badge-type | rg -n 'disable-definition|BADGE-TYPE|BADGE FN|actions|warning_kinds|targets'`
+- research branch commit `462025a`: `./.lake/build/bin/acl2lean hints acl2_samples/apply-model-apply.lisp badge-type | rg -n 'disable \\(:DEFINITION BADGE\\)|trigger term|warning-kinds|actions'`
+- research branch commit `462025a`: `lake build`
+- research branch commit `462025a`: `uv run python Verify.py`
+- pushed research branch commit `462025a` to `origin/autoresearch/mar19-acl2lean`
+- `gh run watch 23330347467 --exit-status` succeeded for GitHub Actions run `23330347467`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- `badge-type` from `acl2_samples/apply-model-apply.lisp` is now a concrete acceptance test for a previously dropped ACL2 oracle signal: Lean sees `disable (:DEFINITION BADGE) so trigger term (BADGE FN) can arise for BADGE-TYPE` instead of only `warning-kinds: Non-rec`
+- this is a real hint-generator-path advance because it preserves theorem-local ACL2 theory guidance for a warning family that appears outside the existing rewrite/linear `Non-rec` regexes, which makes the bridge less biased toward one narrow ACL2 rule-class wording
+- I did not promote this slice to `main` yet because it still extends the research-branch-only dynamic hint/action workflow rather than a surface already carried on `main`
+
+Next best ideas:
+
+1. start executing checkpoint-local `disable-definition`, `use`, and `in-theory` actions against Lean replay state so the recovered oracle guidance affects checked replay instead of only display
+2. scan for any other real ACL2 warning families that still surface only as `warning-kinds` or raw text, especially trigger-oriented advice outside the current rewrite/linear patterns
+3. decide when the recent dynamic hint-bridge slices are coherent enough to promote together to `main` as one stable replay-infrastructure batch
