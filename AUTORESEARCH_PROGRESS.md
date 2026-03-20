@@ -943,3 +943,42 @@ Next best ideas:
 1. start executing checkpoint-local `use` and `disable-rule` actions against Lean replay state now that both transcript multi-item hints and warning-derived multi-rune guidance arrive one action at a time
 2. decide whether the dynamic panel should collapse duplicate guidance when the same theorem/rune arrives from transcript hints and warnings, while still preserving ACL2 provenance somewhere in notes
 3. keep scanning real ACL2 transcripts for any remaining theorem-local guidance that still degrades into display-only strings despite the action extractor improvements
+
+## 2026-03-19 Iteration 26
+
+Completed this iteration:
+
+- reused the existing ACL2 parser and `TheoryExpr` model on the Lean side so dynamic ACL2 `in-theory` actions are no longer trapped as opaque strings inside `ACL2Lean.HintBridge`
+- taught the `acl2lean hints` CLI renderer to show structured theory trees under dynamic `in-theory` actions, so emitted guidance like `(DISABLE FLOOR NONNEG-INT-GCD-IS-COMMON-DIVISOR)` now prints as decomposed `theory: disable` entries instead of only `adjust theory ...`
+- updated `ACL2Lean.ProofMode` so dynamic hint snapshots thread those parsed theory items into checkpoint-local action details, the rune pane, and the notes stream, reusing the same theory-summary path that imported static metadata already used
+- documented the new dynamic theory-normalization behavior in `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md`
+- tracked this slice in Linear as `ALOK-565`
+
+Verification:
+
+- research branch commit `062e3b5`: `lake build ACL2Lean.HintBridge ACL2Lean.ProofMode Main`
+- research branch commit `062e3b5`: `lake build acl2lean`
+- research branch commit `062e3b5`: `lake build`
+- research branch commit `062e3b5`: `uv run python Verify.py`
+- research branch commit `062e3b5`: `./.lake/build/bin/acl2lean hints acl2_samples/apply-model-apply.lisp 'apply$-badgep-hons-get-lemma' | rg -n 'theory: enable|hons-assoc-equal'`
+- research branch commit `062e3b5`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp nonnegative-integer-quotient-gcd-exceeds-1 | rg -n 'theory: disable|disable floor|disable nonneg-int-gcd-is-common-divisor'`
+- research branch commit `062e3b5`: `lean_run_code` on `ACL2Lean.ProofMode` confirmed `snapshotOfDynamicHints` exposes dynamic runes `disable floor` / `disable nonneg-int-gcd-is-common-divisor` plus matching `action-theory ...` notes for `nonnegative-integer-quotient-gcd-exceeds-1`
+- pushed research branch commit `062e3b5` to `origin/autoresearch/mar19-acl2lean`
+- `gh run watch 23331468243 --exit-status` succeeded for GitHub Actions run `23331468243`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- this directly advances the preferred attack order in `program.md`: the ACL2 binary is already emitting theory guidance, and Lean now parses that emitted `:IN-THEORY` payload back into the shared structural representation instead of stopping at flat display text
+- the static imported-metadata path and the dynamic hint-oracle path now share one theory-language normalization surface, which should make later replay execution of dynamic `in-theory` actions less ad hoc
+- I did not promote this slice to `main` yet because it still deepens the research-branch-only dynamic hint/proof-mode workflow rather than a surface already carried on `main`
+
+Next best ideas:
+
+1. start executing checkpoint-local dynamic `use`, `disable-rule` / `disable-definition`, and `in-theory` actions against Lean replay state so the parsed oracle guidance changes checked replay instead of only display
+2. normalize other dynamic hint payloads such as `:expand` and `:do-not-induct` more structurally on the Lean side, so replay consumers do not have to peel those strings apart later
+3. decide whether the accumulated dynamic hint/proof-mode slices are coherent enough to promote together to `main` as one stable replay-infrastructure batch
