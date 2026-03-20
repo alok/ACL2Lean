@@ -88,6 +88,21 @@ partial def translateCaseClauses (testStr : String) (clauses : SExpr) (nativeIf 
       else
         let keyLit := s!"(SExpr.atom (.symbol \{ name := \"{s.name}\" }))"
         s!"(if Logic.toBool (Logic.equal {testStr} {keyLit}) then {translateExpr val nativeIf} else {translateCaseClauses testStr rest nativeIf})"
+    | .cons _ _ =>
+      -- Multi-key: ((sym1 sym2 ...) val) — match if test equals any key
+      match key.toList? with
+      | some keys =>
+        let conds := keys.filterMap fun
+          | .atom (.symbol s) =>
+            let keyLit := s!"(SExpr.atom (.symbol \{ name := \"{s.name}\" }))"
+            some s!"(Logic.equal {testStr} {keyLit})"
+          | k => some s!"(Logic.equal {testStr} {translateExpr k nativeIf})"
+        let guard := match conds with
+          | [] => "SExpr.nil"
+          | [c] => c
+          | c :: cs => cs.foldl (fun acc g => s!"(Logic.or {acc} {g})") c
+        s!"(if Logic.toBool {guard} then {translateExpr val nativeIf} else {translateCaseClauses testStr rest nativeIf})"
+      | none => s!"sorry /- malformed case key list: {repr key} -/"
     | _ =>
       s!"(if Logic.toBool (Logic.equal {testStr} {translateExpr key nativeIf}) then {translateExpr val nativeIf} else {translateCaseClauses testStr rest nativeIf})"
   | .nil => "SExpr.nil"
@@ -147,6 +162,20 @@ partial def translateExpr (expr : SExpr) (nativeIf : Bool := false) : String :=
           let testStr := translateExpr testExpr nativeIf
           translateCaseClauses testStr clauses nativeIf
         | _ => s!"sorry /- malformed case -/"
+      else if s.isNamed "let" || s.isNamed "let*" then
+        match argsExpr with
+        | .cons bindings (.cons body .nil) =>
+          let bindStrs := match bindings.toList? with
+            | some pairs => pairs.filterMap fun pair =>
+                match pair.toList? with
+                | some [.atom (.symbol var), val] =>
+                  some s!"let {translateSymbol var} := {translateExpr val nativeIf}"
+                | _ => none
+            | none => []
+          let bodyStr := translateExpr body nativeIf
+          if bindStrs.isEmpty then bodyStr
+          else s!"({String.intercalate "; " bindStrs}; {bodyStr})"
+        | _ => s!"sorry /- malformed let: {repr expr} -/"
       else if s.isNamed "list" then
         let args := match argsExpr.toList? with | some l => l.map (translateExpr · nativeIf) | none => []
         args.foldr (fun a acc => s!"(Logic.cons {a} {acc})") "SExpr.nil"
@@ -219,6 +248,17 @@ partial def collectVars (expr : SExpr) (acc : List String := []) : List String :
         | .cons testExpr clauses =>
           let acc := collectVars testExpr acc
           collectVarsCaseClauses clauses acc
+        | _ => acc
+      else if s.isNamed "let" || s.isNamed "let*" then
+        match argsExpr with
+        | .cons bindings (.cons body .nil) =>
+          let acc := match bindings.toList? with
+            | some pairs => pairs.foldl (fun acc pair =>
+                match pair.toList? with
+                | some [_, val] => collectVars val acc
+                | _ => acc) acc
+            | none => acc
+          collectVars body acc
         | _ => acc
       else if s.isNamed "list" then
         match argsExpr.toList? with

@@ -3,6 +3,20 @@ import ACL2Lean
 private def theoremMatches (needle : String) (name : ACL2.Symbol) : Bool :=
   name.normalizedName = needle.map Char.toLower
 
+/-- Flatten events preserving locality: returns (event, isLocal) pairs. -/
+private partial def flattenWithLocality (isLocal : Bool) : ACL2.Event → List (ACL2.Event × Bool)
+  | .local inner => flattenWithLocality true inner
+  | .mutualRecursion events => events.flatMap (flattenWithLocality isLocal)
+  | .encapsulate events => events.flatMap (flattenWithLocality isLocal)
+  | .makeEvent body =>
+      let generated := ACL2.Event.generatedEvents body
+      if generated.isEmpty then [(.makeEvent body, isLocal)]
+      else generated.flatMap (flattenWithLocality isLocal)
+  | event => [(event, isLocal)]
+
+private def flattenListWithLocality (events : List ACL2.Event) : List (ACL2.Event × Bool) :=
+  events.flatMap (flattenWithLocality false)
+
 private def printTheoremMetadata (name : ACL2.Symbol) (info : ACL2.TheoremInfo) : IO Unit := do
   IO.println s!"theorem {repr name}"
   let ruleClasses := info.ruleClasses.map ACL2.RuleClass.summary
@@ -90,13 +104,18 @@ def main (args : List String) : IO Unit := do
             | _ => pure ()
           IO.println "open ACL2 ACL2.Logic ACL2.Tactics"
           IO.println ""
-          for ev in ACL2.Event.flattenList evs do
+          for (ev, isLocal) in flattenListWithLocality evs do
+            let priv := if isLocal then "private " else ""
             match ev with
             | .defun name formals _ _ body =>
-                IO.println (ACL2.Translator.translateDefun name formals body)
+                let defStr := ACL2.Translator.translateDefun name formals body
+                let defStr := if isLocal then defStr.replace "def " s!"{priv}def " else defStr
+                IO.println defStr
                 IO.println ""
             | .defthm name info =>
-                IO.println (ACL2.Translator.translateDefthm name info)
+                let thmStr := ACL2.Translator.translateDefthm name info
+                let thmStr := if isLocal then thmStr.replace "theorem " s!"{priv}theorem " else thmStr
+                IO.println thmStr
                 IO.println ""
             | .inTheory expr =>
                 IO.println s!"/- ACL2 in-theory: {(ACL2.TheoryExpr.ofSExpr expr).summary} -/"
