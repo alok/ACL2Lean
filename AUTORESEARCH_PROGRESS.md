@@ -414,3 +414,44 @@ Next best ideas:
 1. turn theorem-local dynamic checkpoints and warning kinds into replayable Lean-side actions instead of only panel/CLI metadata
 2. replace the hardcoded Python sample-resolution table with data-driven upstream-source metadata so more excerpted books can be loaded and scoped consistently
 3. start decomposing dynamic ACL2 warning kinds like `Disable` / `Double-rewrite` into Lean proof-search heuristics or theory-adjustment suggestions
+
+## 2026-03-19 Iteration 12
+
+Completed this iteration:
+
+- added a structured dynamic replay-action layer to `scripts/acl2_hint_bridge.py`, so theorem-local ACL2 output now produces typed candidate actions instead of leaving `:USE` hints, disable advice, rewrite-overlap warnings, and induction choices trapped inside raw text blocks
+- taught the bridge to extract concrete actions from real ACL2 output shapes: `:USE` / generic hint-events, `consider disabling ...` warning text, `Subsume` rewrite-overlap warnings, and induction term/rule summaries
+- extended `ACL2Lean.HintBridge` with `DynamicAction`, threaded the new JSON field through Lean deserialization, and updated the CLI renderer plus `ACL2Lean.ProofMode` so proof-mode snapshots now count and surface candidate replay actions in `Next Moves` / notes
+- switched `ACL2Lean/ProofModeDemo.lean` to `nbr-calls-flog2-is-logarithmic`, which exercises the new action path with real `:USE`, disable-rule, and rewrite-overlap guidance from ACL2
+- updated the README / ACL2 spec / proof-mode notes and tracked the slice in Linear as `ALOK-551`
+
+Verification:
+
+- research branch commit `d1b308e`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `d1b308e`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/2009-log2.lisp --theorem nbr-calls-flog2-is-logarithmic`
+- research branch commit `d1b308e`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/2009-log2.lisp --theorem natp-clog2`
+- research branch commit `d1b308e`: `lean-lsp-mcp` diagnostics on `ACL2Lean/HintBridge.lean`, `ACL2Lean/ProofMode.lean`, and `ACL2Lean/ProofModeDemo.lean`
+- research branch commit `d1b308e`: `LAKE_NO_CACHE=1 lake build ACL2Lean.HintBridge ACL2Lean.ProofMode ACL2Lean.ProofModeDemo Main`
+- research branch commit `d1b308e`: `LAKE_NO_CACHE=1 lake build`
+- research branch commit `d1b308e`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-log2.lisp nbr-calls-flog2-is-logarithmic | sed -n '1,200p'`
+- research branch commit `d1b308e`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-log2.lisp natp-clog2 | sed -n '1,160p'`
+- research branch commit `d1b308e`: `uv run python Verify.py`
+- pushed research branch commit `d1b308e` to `origin/autoresearch/mar19-acl2lean`
+- after the push, `gh run list --branch autoresearch/mar19-acl2lean --limit 8` showed GitHub Actions run `23327251026` for `Extract structured actions from ACL2 hint bridge` as `in_progress`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- `nbr-calls-flog2-is-logarithmic` now reaches Lean with four concrete candidate replay actions: one `use`, one `disable-rule`, and two rewrite-overlap actions derived from ACL2 `Subsume` warnings
+- `natp-clog2` now surfaces an explicit induction action (`induct on (CLOG2 N) using rule CLOG2`) through the same bridge, which is the first time the dynamic path has emitted a typed induction candidate instead of only a prose block
+- this is a real bridge advance, but I did not promote it to `main` yet because the proof-mode consumer for dynamic actions still lives on the research branch alongside the earlier hint-bridge/UI slices
+
+Next best ideas:
+
+1. execute the new dynamic replay actions against real Lean goals, starting with `use`, disable-rule/theory adjustments, and induction candidates
+2. replace the hardcoded Python sample-resolution table with data-driven upstream-source metadata so dynamic fallback remains maintainable as the corpus grows
+3. parse additional dynamic ACL2 guidance such as `Double-rewrite`, richer `:in-theory` hint-events, and other warning forms into typed Lean-side actions
