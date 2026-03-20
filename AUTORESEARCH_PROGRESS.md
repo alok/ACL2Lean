@@ -378,3 +378,39 @@ Next best ideas:
 1. make theorem-section extraction in `scripts/acl2_hint_bridge.py` more theorem-local inside `encapsulate` / `make-event` output so dynamic observations, warnings, and inductions stop bleeding across neighboring generated theorems
 2. feed the new raw goal/subgoal checkpoint kinds into richer proof-mode UI treatment, such as separate styling or timelines for explicit ACL2 checkpoints versus lightweight trace markers
 3. replace the Python-side hardcoded sample-resolution table with data-driven upstream-source metadata so dynamic book fallback stays maintainable as the corpus grows
+
+## 2026-03-19 Iteration 11
+
+Completed this iteration:
+
+- tightened `scripts/acl2_hint_bridge.py` so theorem extraction no longer slices from a whole ACL2 prompt when the target theorem appears inside a larger generated run
+- made theorem-local extraction track all `DEFTHM` summary positions, trim to the target theorem's own summary block, and respect non-`ACL2` package prompts such as `MODAPP !>>>`
+- added regression coverage for both failure modes: multiple theorem summaries in one prompt and package-specific prompts inside generated output
+- updated `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md` to document the stronger theorem-local dynamic bridge behavior
+- tracked this slice in Linear as `ALOK-550`
+
+Verification:
+
+- research branch commit `cae43a2`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `cae43a2`: `LAKE_NO_CACHE=1 lake build acl2lean`
+- research branch commit `cae43a2`: `uv run python Verify.py`
+- research branch commit `cae43a2`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp make-prog-correct | sed -n '1,120p'`
+- research branch commit `cae43a2`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/apply-model-apply-prim.lisp --theorem 'n-car-cadr-caddr-etc-opener'`
+- pushed research branch commit `cae43a2` to `origin/autoresearch/mar19-acl2lean`
+- after the push, `gh run list --branch autoresearch/mar19-acl2lean --limit 8` showed GitHub Actions run `23326881659` for `Tighten theorem-local ACL2 hint extraction` as `in_progress`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- the key acceptance check was the real `apply-model` theorem `n-car-cadr-caddr-etc-opener`: its dynamic artifact now starts at the target theorem's `MODAPP !>>>` prompt and `DEFTHM` form instead of inheriting enclosing `IN-THEORY` / `ENCAPSULATE` summaries or unrelated warning kinds
+- `make-prog-correct` on the `die-hard` path still renders the expected theorem-local warnings and raw goal/subgoal checkpoints through the built `acl2lean hints` CLI, so the tighter slicing did not regress the already-working dynamic path
+
+Next best ideas:
+
+1. turn theorem-local dynamic checkpoints and warning kinds into replayable Lean-side actions instead of only panel/CLI metadata
+2. replace the hardcoded Python sample-resolution table with data-driven upstream-source metadata so more excerpted books can be loaded and scoped consistently
+3. start decomposing dynamic ACL2 warning kinds like `Disable` / `Double-rewrite` into Lean proof-search heuristics or theory-adjustment suggestions
