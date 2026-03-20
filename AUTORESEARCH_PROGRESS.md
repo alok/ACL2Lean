@@ -1437,3 +1437,44 @@ Next best ideas:
 1. resolve dynamic `useTimeline` theorem names against imported Lean declarations automatically so `acl2lean hints` and proof-mode can distinguish available replay targets from merely named ACL2 guidance
 2. execute the `nbr-calls-flog2-is-logarithmic` dynamic `:USE` action against a real Lean proof state as the first checked replay experiment driven by oracle data
 3. generalize the `Log2Replay` import pattern so more ACL2 theorem clusters can expose oracle-named support lemmas before the full generic replay engine lands
+
+## 2026-03-20 Iteration 37
+
+Completed this iteration:
+
+- added `ACL2Lean/ImportedRegistry.lean`, which introduces a Lean-side registry for checked imported ACL2 theorems, a lightweight `acl2_imported "<acl2-name>" theoremName` command for registering theorem/source-name pairs, and `emit_acl2_import_snapshot` for freezing the imported registry into a build-time `ACL2.compiledImportedSnapshot`
+- registered the public `ACL2Lean/Imported/Log2Replay.lean` theorem bundle under their ACL2 source names, including `nbr-calls-flog2-upper-bound`, so the dynamic hint bridge can resolve those names without hardcoded per-theorem logic in the UI or CLI
+- taught `ACL2Lean.HintBridge` to extract resolvable theorem names from dynamic ACL2 `:USE` actions and render a new `resolved-imported-uses:` block that maps ACL2 theorem names to checked Lean declarations when available
+- updated `ACL2Lean.ProofMode` so dynamic hint snapshots count resolved imported uses in the goal summary, bias next-move guidance toward resolved Lean targets, and include explicit `resolved-imported-use:` notes for downstream replay/UI consumers
+- switched the `acl2lean hints ...` CLI path in `Main.lean` to the compiled snapshot so the direct `./.lake/build/bin/acl2lean hints ...` workflow resolves imported theorems without relying on runtime `importModules` search-path reconstruction
+- added guard coverage for registry normalization/resolution plus CLI/proof-mode surfacing of resolved imported uses, and tracked the slice in Linear as `ALOK-577`
+
+Verification:
+
+- research branch commit `e4b87eb`: `lake build ACL2Lean.ImportedRegistry ACL2Lean.HintBridge ACL2Lean.ProofMode ACL2Lean.Imported.Log2Replay ACL2Lean Main`
+- research branch commit `e4b87eb`: `lake build acl2lean`
+- research branch commit `e4b87eb`: `lake build`
+- research branch commit `e4b87eb`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `e4b87eb`: `uv run python Verify.py`
+- research branch commit `e4b87eb`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-log2.lisp nbr-calls-flog2-is-logarithmic | rg -n 'resolved-imported-uses|nbr-calls-flog2-upper-bound|ACL2\\.Imported\\.Log2Replay\\.nbr_calls_flog2_upper_bound|resolved imported uses'`
+- research branch commit `e4b87eb`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-log2.lisp nbr-calls-flog2-is-logarithmic | sed -n '1,220p'`
+- pushed research branch commit `e4b87eb` to `origin/autoresearch/mar19-acl2lean`
+- research branch commit `e4b87eb`: `lake exe acl2lean ci autoresearch/mar19-acl2lean` reported fresh GitHub Actions run `23337835992` in progress
+- `gh run watch 23337835992 --exit-status` succeeded for GitHub Actions run `23337835992`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- this is the first dynamic-hint slice that distinguishes ACL2 theorem names already backed by checked Lean declarations from unresolved ACL2 guidance, rather than only telling the user that ACL2 suggested a theorem name
+- the real `acl2_samples/2009-log2.lisp` / `nbr-calls-flog2-is-logarithmic` oracle path now resolves both the hint-event `:USE` and the warning-derived `use ... in Goal` guidance for `nbr-calls-flog2-upper-bound` to `ACL2.Imported.Log2Replay.nbr_calls_flog2_upper_bound`
+- I did not promote this slice to `main` yet because the clean mainline boundary is still the first checked replay step that actually consumes one of these resolved imported use targets against a Lean goal
+
+Next best ideas:
+
+1. execute the resolved `nbr-calls-flog2-upper-bound` `:USE` guidance against a real Lean proof state for `nbr_calls_flog2_is_logarithmic`, so the bridge advances from target resolution into checked replay
+2. extend resolution beyond direct theorem-name `:USE` payloads to richer instance/case payloads and other theorem-bearing warning paths, so more ACL2 oracle advice becomes executable rather than merely inspectable
+3. use the resolved imported targets to drive proof-mode actions or script generation instead of only rendering them as notes and CLI output
