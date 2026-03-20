@@ -20,6 +20,12 @@ structure DynamicCheckpoint where
   text : String
   deriving Inhabited, Repr, FromJson, ToJson
 
+structure DynamicProgress where
+  kind : String
+  label : String
+  text : String
+  deriving Inhabited, Repr, FromJson, ToJson
+
 structure DynamicArtifact where
   book : String
   resolved_book : String
@@ -37,6 +43,7 @@ structure DynamicArtifact where
   prover_steps : Option Nat
   actions : List DynamicAction
   checkpoints : List DynamicCheckpoint
+  progress : List DynamicProgress
   observations : List String
   warnings : List String
   inductions : List String
@@ -62,6 +69,7 @@ def unavailableArtifact (book theoremName reason : String) : DynamicArtifact :=
     prover_steps := none
     actions := []
     checkpoints := []
+    progress := []
     observations := []
     warnings := []
     inductions := []
@@ -169,7 +177,18 @@ def renderLines (artifact : DynamicArtifact) : List String :=
             , s!"    {checkpoint.text.replace "\n" "\n    "}"
             ] ++ acc)
           []
-  header ++ loadNote ++ loadSteps ++ summary ++ summaryRules ++ hintEvents ++ splitterRules ++ warningKinds ++ summaryTime ++ proverSteps ++ actions ++ observations ++ warnings ++ inductions ++ checkpoints
+  let progress :=
+    if artifact.progress.isEmpty then
+      []
+    else
+      "progress:" ::
+        artifact.progress.foldr
+          (fun entry acc =>
+            [ s!"  [{entry.kind}] {entry.label}"
+            , s!"    {entry.text.replace "\n" "\n    "}"
+            ] ++ acc)
+          []
+  header ++ loadNote ++ loadSteps ++ summary ++ summaryRules ++ hintEvents ++ splitterRules ++ warningKinds ++ summaryTime ++ proverSteps ++ actions ++ observations ++ warnings ++ inductions ++ progress ++ checkpoints
 
 end HintBridge
 end ACL2

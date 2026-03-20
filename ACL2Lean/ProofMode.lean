@@ -160,9 +160,24 @@ private def dynamicContextCheckpoint (artifact : ACL2.HintBridge.DynamicArtifact
       (fun count checkpoint => if checkpoint.kind = "key-checkpoint" then count + 1 else count)
       0
   let traceCheckpointCount := artifact.checkpoints.length - keyCheckpointCount
+  let progressCount := artifact.progress.length
   { title := "Dynamic ACL2 hint extraction"
-    detail := s!"Recovered {keyCheckpointCount} key checkpoints, {traceCheckpointCount} raw goal/subgoal markers, {artifact.actions.length} candidate replay actions, {artifact.observations.length} observations, {artifact.warnings.length} warnings, {artifact.inductions.length} induction summaries, {artifact.summary_rules.length} summary rules, and {artifact.hint_events.length} hint-events from the ACL2 proof run."
-    status := if artifact.checkpoints.isEmpty && artifact.actions.isEmpty then "planned" else "done" }
+    detail := s!"Recovered {keyCheckpointCount} key checkpoints, {traceCheckpointCount} raw goal/subgoal markers, {progressCount} lifecycle progress events, {artifact.actions.length} candidate replay actions, {artifact.observations.length} observations, {artifact.warnings.length} warnings, {artifact.inductions.length} induction summaries, {artifact.summary_rules.length} summary rules, and {artifact.hint_events.length} hint-events from the ACL2 proof run."
+    status :=
+      if artifact.checkpoints.isEmpty && artifact.progress.isEmpty && artifact.actions.isEmpty then
+        "planned"
+      else
+        "done" }
+
+private def completedCheckpointLabels (artifact : ACL2.HintBridge.DynamicArtifact) : List String :=
+  dedupStrings <|
+    artifact.progress.foldr
+      (fun entry acc =>
+        if entry.kind = "checkpoint-complete" then
+          entry.label :: acc
+        else
+          acc)
+      []
 
 private def dynamicCheckpointTitle (idx : Nat) (checkpoint : ACL2.HintBridge.DynamicCheckpoint) : String :=
   match checkpoint.kind with
@@ -171,22 +186,46 @@ private def dynamicCheckpointTitle (idx : Nat) (checkpoint : ACL2.HintBridge.Dyn
   | "subgoal" => s!"ACL2 {checkpoint.label}"
   | _ => s!"Emitted checkpoint {idx + 1}: {checkpoint.label}"
 
-private def dynamicCheckpointEntries : Nat → List ACL2.HintBridge.DynamicCheckpoint → List Checkpoint
+private def dynamicCheckpointEntries
+    (completedLabels : List String) : Nat → List ACL2.HintBridge.DynamicCheckpoint → List Checkpoint
   | _, [] => []
   | idx, checkpoint :: rest =>
       { title := dynamicCheckpointTitle idx checkpoint
         detail := checkpoint.text
-        status := if idx = 0 then "active" else "planned" } ::
-        dynamicCheckpointEntries (idx + 1) rest
+        status :=
+          if completedLabels.contains checkpoint.label then
+            "done"
+          else if idx = 0 then
+            "active"
+          else
+            "planned" } ::
+        dynamicCheckpointEntries completedLabels (idx + 1) rest
+
+private def dynamicProgressTitle (idx : Nat) (entry : ACL2.HintBridge.DynamicProgress) : String :=
+  match entry.kind with
+  | "induction-push" => s!"ACL2 induction push: {entry.label}"
+  | "subproof-complete" => s!"ACL2 subproof complete: {entry.label}"
+  | "checkpoint-complete" => s!"ACL2 checkpoint complete: {entry.label}"
+  | _ => s!"ACL2 progress {idx + 1}: {entry.label}"
+
+private def dynamicProgressEntries : Nat → List ACL2.HintBridge.DynamicProgress → List Checkpoint
+  | _, [] => []
+  | idx, entry :: rest =>
+      { title := dynamicProgressTitle idx entry
+        detail := entry.text
+        status := "done" } ::
+        dynamicProgressEntries (idx + 1) rest
 
 private def dynamicCheckpoints (artifact : ACL2.HintBridge.DynamicArtifact) : List Checkpoint :=
   let context := dynamicContextCheckpoint artifact
-  let emitted := dynamicCheckpointEntries 0 artifact.checkpoints
-  match emitted with
+  let completedLabels := completedCheckpointLabels artifact
+  let progress := dynamicProgressEntries 0 artifact.progress
+  let emitted := dynamicCheckpointEntries completedLabels 0 artifact.checkpoints
+  match progress ++ emitted with
   | [] =>
       [ context
       , { title := "Hint generation"
-          detail := "ACL2 did not emit any key checkpoints for this theorem; inspect observations, warnings, and the raw excerpt."
+          detail := "ACL2 did not emit any checkpoints or lifecycle progress for this theorem; inspect observations, warnings, and the raw excerpt."
           status := "active" }
       ]
   | checkpoints => context :: checkpoints
@@ -224,6 +263,10 @@ private def dynamicNextMoves (artifact : ACL2.HintBridge.DynamicArtifact) : List
         some "Try a theorem with richer ACL2 proof output or adjust the ACL2 driver to emit more checkpoints."
       else
         some "Translate the first emitted ACL2 checkpoint into a Lean-side replay step and compare it to the current theorem goal."
+    , if artifact.progress.isEmpty then
+        none
+      else
+        some "Use ACL2's emitted induction-push and completion events to reconcile planned checkpoints with checked replay progress."
     , if artifact.inductions.isEmpty then
         none
       else
@@ -256,6 +299,10 @@ private def dynamicNotes (sourcePath : String) (artifact : ACL2.HintBridge.Dynam
       (if artifact.observations.isEmpty then [] else artifact.observations.map (fun block => s!"observation: {inlineBlock block}")) ++
       (if artifact.warnings.isEmpty then [] else artifact.warnings.map (fun block => s!"warning: {inlineBlock block}")) ++
       (if artifact.inductions.isEmpty then [] else artifact.inductions.map (fun block => s!"induction: {inlineBlock block}")) ++
+      (if artifact.progress.isEmpty then
+        []
+      else
+        artifact.progress.map (fun entry => s!"progress {entry.kind}: {inlineBlock entry.text}")) ++
       (if artifact.warning_kinds.isEmpty then [] else [s!"Warning kinds: {String.intercalate ", " artifact.warning_kinds}"]) ++
       (if artifact.stderr.isEmpty then [] else [s!"ACL2 stderr: {artifact.stderr}"])
 
@@ -263,7 +310,7 @@ def snapshotOfDynamicHints
     (sourcePath theoremName : String)
     (artifact : ACL2.HintBridge.DynamicArtifact) : Snapshot :=
   { theoremName := s!"ACL2 emitted hints for {theoremName}"
-    goal := s!"ACL2 dynamic summary:\n  {artifact.summary_form}\n\nDynamic proof context:\n  key checkpoints: {artifact.checkpoints.length}\n  candidate actions: {artifact.actions.length}\n  observations: {artifact.observations.length}\n  warnings: {artifact.warnings.length}\n  induction summaries: {artifact.inductions.length}\n  summary rules: {artifact.summary_rules.length}\n  hint-events: {artifact.hint_events.length}\n  prover steps: {artifact.prover_steps.getD 0}"
+    goal := s!"ACL2 dynamic summary:\n  {artifact.summary_form}\n\nDynamic proof context:\n  checkpoints: {artifact.checkpoints.length}\n  lifecycle progress events: {artifact.progress.length}\n  candidate actions: {artifact.actions.length}\n  observations: {artifact.observations.length}\n  warnings: {artifact.warnings.length}\n  induction summaries: {artifact.inductions.length}\n  summary rules: {artifact.summary_rules.length}\n  hint-events: {artifact.hint_events.length}\n  prover steps: {artifact.prover_steps.getD 0}"
     checkpoints := dynamicCheckpoints artifact
     runes := dynamicRunes artifact
     nextMoves := dynamicNextMoves artifact

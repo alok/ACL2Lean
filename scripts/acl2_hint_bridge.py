@@ -41,6 +41,15 @@ TYPED_TERM_RE = re.compile(
     r"Our heuristics choose\s+(.+?)\s+as the\s+:TYPED-TERM\.",
     re.IGNORECASE,
 )
+INDUCTION_PUSH_RE = re.compile(
+    r"^(\*[^\s]+)\s+\((.+?)\)\s+is pushed for proof by induction\.$",
+    re.IGNORECASE,
+)
+SUBPROOF_COMPLETE_RE = re.compile(r"^(\*[^\s]+)\s+is COMPLETED!$", re.IGNORECASE)
+CHECKPOINT_COMPLETE_RE = re.compile(
+    r"^Thus key checkpoint\s+(.+?)\s+is COMPLETED!$",
+    re.IGNORECASE,
+)
 NONREC_WARNING_RE = re.compile(
     r"A\s+:(?P<rule_class>[A-Z0-9-]+)\s+rule generated from\s+(?P<theorem>[^\s]+)\s+"
     r"will be triggered only by terms containing\s+the function symbols?\s+"
@@ -400,6 +409,49 @@ def collect_trace_checkpoints(lines: list[str], known_labels: set[str]) -> list[
         seen.add(line)
         checkpoints.append({"kind": kind, "label": line, "text": line})
     return checkpoints
+
+
+def collect_progress_entries(lines: list[str]) -> list[dict[str, str]]:
+    progress: list[dict[str, str]] = []
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        induction_push_match = INDUCTION_PUSH_RE.fullmatch(line)
+        if induction_push_match:
+            proof_name, checkpoint_label = induction_push_match.groups()
+            progress.append(
+                {
+                    "kind": "induction-push",
+                    "label": f"{proof_name} ({checkpoint_label})",
+                    "text": line,
+                }
+            )
+            continue
+
+        subproof_complete_match = SUBPROOF_COMPLETE_RE.fullmatch(line)
+        if subproof_complete_match:
+            progress.append(
+                {
+                    "kind": "subproof-complete",
+                    "label": subproof_complete_match.group(1),
+                    "text": line,
+                }
+            )
+            continue
+
+        checkpoint_complete_match = CHECKPOINT_COMPLETE_RE.fullmatch(line)
+        if checkpoint_complete_match:
+            progress.append(
+                {
+                    "kind": "checkpoint-complete",
+                    "label": checkpoint_complete_match.group(1).strip(),
+                    "text": line,
+                }
+            )
+
+    return progress
 
 
 def collect_prefixed_blocks(lines: list[str], prefix: str) -> list[str]:
@@ -956,6 +1008,7 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
             "prover_steps": None,
             "actions": [],
             "checkpoints": [],
+            "progress": [],
             "observations": [],
             "warnings": [],
             "inductions": [],
@@ -970,6 +1023,7 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
     warnings = collect_prefixed_blocks(excerpt, "ACL2 Warning")
     inductions = collect_induction_blocks(excerpt)
     explicit_checkpoints = collect_checkpoint_blocks(excerpt)
+    progress = collect_progress_entries(excerpt)
 
     return {
         "status": "proved",
@@ -994,6 +1048,7 @@ def theorem_section(lines: list[str], theorem: str) -> dict[str, object]:
                 excerpt, {checkpoint["label"] for checkpoint in explicit}
             )
         )(explicit_checkpoints),
+        "progress": progress,
         "observations": observations,
         "warnings": warnings,
         "inductions": inductions,

@@ -471,6 +471,26 @@ class HintBridgeParsingTests(unittest.TestCase):
         self.assertEqual(artifact["checkpoints"][0]["label"], "Goal'")
         self.assertEqual(artifact["checkpoints"][1]["kind"], "subgoal")
         self.assertEqual(artifact["checkpoints"][1]["label"], "Subgoal *1/8")
+        self.assertEqual(
+            artifact["progress"],
+            [
+                {
+                    "kind": "induction-push",
+                    "label": "*1 (Goal')",
+                    "text": "*1 (Goal') is pushed for proof by induction.",
+                },
+                {
+                    "kind": "subproof-complete",
+                    "label": "*1",
+                    "text": "*1 is COMPLETED!",
+                },
+                {
+                    "kind": "checkpoint-complete",
+                    "label": "Goal'",
+                    "text": "Thus key checkpoint Goal' is COMPLETED!",
+                },
+            ],
+        )
         self.assertEqual(len(artifact["inductions"]), 1)
         self.assertIn(":induction rule CLOG2", artifact["inductions"][0])
         self.assertIn("eight nontautological subgoals.", artifact["inductions"][0])
