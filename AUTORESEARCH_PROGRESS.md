@@ -791,3 +791,42 @@ Next best ideas:
 1. start executing checkpoint-local `use` actions against Lean replay state now that multi-item bundles no longer need extra normalization before scheduling
 2. group dynamic actions by ACL2 goal/subgoal inside `ACL2Lean.ProofMode` so the panel follows theorem-local replay targeting instead of presenting one flat action list in notes
 3. only then extend transcript recovery to additional theorem-level directives such as `:otf-flg`, and only if real ACL2 transcripts expose them consistently enough to justify a new replay surface
+
+## 2026-03-19 Iteration 22
+
+Completed this iteration:
+
+- added an explicit `goal_target` field to dynamic ACL2 replay actions, so Lean-side consumers no longer have to infer checkpoint scoping from the tail of an ad hoc `targets` list
+- taught `scripts/acl2_hint_bridge.py` to recover checkpoint-local splitter-note targets from real ACL2 transcript lines such as `Splitter note ... for Goal''`, and to prefer those targeted splitter actions over goal-less summary fallbacks
+- threaded the new goal-target metadata through `ACL2Lean.HintBridge` CLI rendering and `ACL2Lean.ProofMode`, which now attaches targeted ACL2 actions back onto the matching emitted `Goal` / `Subgoal ...` checkpoints instead of leaving them only in flat notes/next-move text
+- strengthened bridge regressions to assert explicit goal targets on splitter, warning-derived, and transcript-recovered actions, and documented the new replay-facing targeting in `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md`
+- tracked this slice in Linear as `ALOK-561`
+
+Verification:
+
+- research branch commit `afedca8`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `afedca8`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/die-hard-work.lisp --theorem exists-gcd-prog | rg -n 'split using|goal_target|Goal''|splitter'`
+- research branch commit `afedca8`: `lean-lsp-mcp` diagnostics on `ACL2Lean/HintBridge.lean` and `ACL2Lean/ProofMode.lean`
+- research branch commit `afedca8`: `LAKE_NO_CACHE=1 lake build ACL2Lean.HintBridge ACL2Lean.ProofMode Main`
+- research branch commit `afedca8`: `lake build`
+- research branch commit `afedca8`: `uv run python Verify.py`
+- research branch commit `afedca8`: `./.lake/build/bin/acl2lean hints acl2_samples/die-hard-work.lisp exists-gcd-prog | sed -n '1,140p'`
+- pushed research branch commit `afedca8` to `origin/autoresearch/mar19-acl2lean`
+- `gh run watch 23330076848 --exit-status` succeeded for GitHub Actions run `23330076848`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- `exists-gcd-prog` is now a concrete acceptance test for checkpoint-local replay targeting: its `if-intro` splitter guidance reaches Lean as a `split-goal` action targeted at `Goal''`, and the CLI/proof-mode surfaces that target explicitly
+- this is a real replay-infrastructure advance because the next executor no longer needs to reverse-engineer checkpoint scoping from free-form summaries or the last element of `targets`
+- I did not promote this slice to `main` yet because it still extends the research-branch-only dynamic hint/action/proof-mode workflow rather than a surface already carried on `main`
+
+Next best ideas:
+
+1. start executing checkpoint-local `use`, `split-goal`, and `in-theory` actions against Lean replay state now that dynamic actions carry explicit goal targets
+2. preserve checkpoint-local targeting on any other ACL2-emitted guidance that still degrades to goal-less actions, but only when real transcripts exhibit the shape
+3. decide when the recent dynamic hint-bridge/proof-mode slices are coherent enough to promote together to `main` as one stable replay-infrastructure batch
