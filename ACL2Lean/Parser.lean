@@ -280,6 +280,43 @@ private def parsedMakeEventEncapsulateLooksRight : Bool :=
       | _ => false
   | .error _ => false
 
+private def parsedProofBuilderInstructionsLookRight : Bool :=
+  match parseOne "(DEFTHM APPLY$-PRIM-META-FN-CORRECT
+                     (EQUAL (APPLY$-PRIM-META-FN-EV TERM ALIST)
+                            (APPLY$-PRIM-META-FN-EV (META-APPLY$-PRIM TERM) ALIST))
+                     :INSTRUCTIONS
+                     ((QUIET!
+                       (:BASH (\"Goal\"
+                               :IN-THEORY '((:DEFINITION HONS-ASSOC-EQUAL)
+                                            (:DEFINITION HONS-EQUAL))))
+                       (:IN-THEORY (UNION-THEORIES
+                                    '((:DEFINITION APPLY$-PRIM))
+                                    (CURRENT-THEORY :HERE)))
+                       (:REPEAT :PROVE)))
+                     :RULE-CLASSES ((:META :TRIGGER-FNS (APPLY$-PRIM))))" with
+  | .ok sx =>
+      match Event.classify sx with
+      | .defthm { name := "apply$-prim-meta-fn-correct", .. } info =>
+          match info.instructions with
+          | [ .block "quiet!" [bashInst, theoryInst, .block "repeat" [.atom "prove"]] ] =>
+              let bashOk :=
+                match bashInst.goalHints with
+                | [hint] =>
+                    hint.goal = "Goal" &&
+                      hint.inTheory?.isSome
+                | _ => false
+              let theoryOk :=
+                match theoryInst.theoryExpr? with
+                | some (.raw expr) =>
+                    match expr.toList? with
+                    | some (.atom (.symbol head) :: _) => head.isNamed "union-theories"
+                    | _ => false
+                | _ => false
+              bashOk && theoryOk
+          | _ => false
+      | _ => false
+  | .error _ => false
+
 #guard parsedQualifiedBuiltinLooksRight
 #guard parsedUppercaseKeywordLooksRight
 #guard parsedUppercaseDefunLooksRight
@@ -287,6 +324,7 @@ private def parsedMakeEventEncapsulateLooksRight : Bool :=
 #guard parsedTopLevelInTheoryLooksRight
 #guard parsedWithOutputWrappedDefthmLooksRight
 #guard parsedMakeEventEncapsulateLooksRight
+#guard parsedProofBuilderInstructionsLookRight
 
 end Parse
 

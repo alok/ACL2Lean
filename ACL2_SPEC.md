@@ -15,7 +15,7 @@
   - `Symbol` with package/name split (`ACL2::CAR` → `{ package := "ACL2", name := "CAR" }`).
   - `Atom` variants: symbol, keyword, string, boolean, `Number` (integer, rational, decimal placeholder).
   - `SExpr` for proper lists + atoms; helper views `ofList`, `toList?`, `headSymbol?`.
-  - `TheoremInfo`, `GoalHint`, `RuleClass`, and `TheoryExpr` preserve proof-relevant `defthm` options such as `:hints`, `:rule-classes`, and `:in-theory` in structured form.
+  - `TheoremInfo`, `GoalHint`, `ProofInstruction`, `RuleClass`, and `TheoryExpr` preserve proof-relevant `defthm` options such as `:hints`, `:instructions`, `:rule-classes`, and `:in-theory` in structured form.
   - `Event` discriminates core ACL2 events used in the sample set (`inPackage`, `includeBook`, `defun`, `defthm`, `defmacro`, `inTheory`, `skip`).
   - `World` stores installed definitions, theorem metadata, and replay-order theory events.
 
@@ -31,10 +31,11 @@
 - `ACL2Lean.Import.loadEventsFromFile`: `IO` wrapper returning `Except String (List Event)`.
 - `lake exe acl2lean metadata <file> [theorem]`: prints extracted theorem metadata and top-level `in-theory` events for quick replay-oriented inspection.
 - `lake exe acl2lean metadata <file> [theorem]` and `lake exe acl2lean translate <file>` now see nested events surfaced through statically recoverable `make-event` expansions.
+- `lake exe acl2lean metadata <file> [theorem]` and `lake exe acl2lean translate <file>` now render structured proof-builder steps from `:instructions`, which is the first replay-oriented import path for ACL2 proof scripts.
 - `ACL2Lean.Workbench.reportSamples`: `#eval` helper that prints event histograms for sanity checking future corpus updates.
 - Extend `sampleFiles` to track regressions; `lake build` exercises the pipeline automatically.
 
 ## Next Steps
-1. Parse richer hint subforms such as `:instructions`, `:cases`, and more nested `:in-theory` combinators so replay can target larger books.
-2. Extend static recovery beyond direct quasiquote skeletons to common `make-event` result wrappers such as `value`/`er-progn` branches that are still syntactically inspectable.
+1. Interpret the structured `ProofInstruction` tree for a small replay prototype instead of only printing it, starting with `quiet!`, `:bash`, `:in-theory`, and `:repeat :prove`.
+2. Parse richer hint subforms such as `:cases` and more nested `:in-theory` combinators so replay can target larger books.
 3. Feed extracted theorem metadata and theory events into proof replay and the ACL proof-mode widget instead of keeping them CLI/translator-only.
