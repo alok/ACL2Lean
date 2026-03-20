@@ -494,3 +494,40 @@ Next best ideas:
 1. parse richer dynamic theory guidance such as emitted `:in-theory`, `:expand`, and `:do-not-induct` hint-events into structured Lean-side actions instead of flat strings
 2. execute the accumulated dynamic replay actions against real Lean goals, starting with `use`, split, and disable-definition/theory adjustments
 3. replace the Python-side hardcoded sample-resolution table with data-driven upstream-source metadata so broader theorem-local dynamic extraction stays maintainable
+
+## 2026-03-19 Iteration 14
+
+Completed this iteration:
+
+- extended `scripts/acl2_hint_bridge.py` so ACL2 `:TYPED-TERM` observations now become typed dynamic replay actions instead of remaining inert observation text
+- fixed induction-block collection so the dynamic bridge preserves ACL2's emitted subgoal-count line (`... produces eight nontautological subgoals.`) instead of truncating the induction guidance just before that proof-search summary
+- strengthened the existing `natp-clog2` regression to assert both behaviors, and updated `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md` so the documented dynamic hint surface matches the richer observation/induction capture
+- tracked this slice in Linear as `ALOK-553`
+
+Verification:
+
+- research branch commit `33ed8f0`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `33ed8f0`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/2009-log2.lisp --theorem natp-clog2`
+- research branch commit `33ed8f0`: `LAKE_NO_CACHE=1 lake build ACL2Lean.HintBridge ACL2Lean.ProofMode Main`
+- research branch commit `33ed8f0`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-log2.lisp natp-clog2 | sed -n '1,220p'`
+- research branch commit `33ed8f0`: `LAKE_NO_CACHE=1 lake build`
+- research branch commit `33ed8f0`: `uv run python Verify.py`
+- pushed research branch commit `33ed8f0` to `origin/autoresearch/mar19-acl2lean`
+- after the push, `gh run list --branch autoresearch/mar19-acl2lean --limit 8` showed GitHub Actions run `23327747480` for `Capture typed-term observation guidance in hint bridge` as `queued`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- `natp-clog2` now reaches Lean with two distinct typed action candidates from ACL2's own proof search: the existing induction choice and a new `typed-term` focus action for `(CLOG2 N)`
+- the preserved induction block now carries ACL2's own subgoal-count forecast into the CLI/panel path, which is more faithful to the hint-oracle role than the earlier truncated block
+- I did not promote this slice to `main` yet because it extends the still-research-only dynamic hint/action workflow rather than a mainline-supported surface
+
+Next best ideas:
+
+1. parse richer dynamic theory guidance such as emitted `:in-theory`, `:expand`, and `:do-not-induct` hint-events into structured Lean-side actions instead of flat strings
+2. capture lifecycle lines like `*1 ... is pushed for proof by induction` and `Thus key checkpoint Goal is COMPLETED!` as structured progress metadata instead of leaving them only in `raw_excerpt`
+3. execute the accumulated dynamic replay actions against real Lean goals, starting with `use`, split, disable-definition/theory adjustments, and typed-term-guided induction setup
