@@ -683,3 +683,37 @@ Next best ideas:
 1. start executing the accumulated dynamic replay actions against Lean goals, beginning with `use`, `disable-definition`, `bind-free-variable`, split, theory-adjustment, and typed-term-guided induction setup
 2. use the new lifecycle/progress events to drive actual replay-state transitions in proof mode instead of only displaying them as emitted metadata
 3. extend transcript-echo recovery beyond `:HINTS` or add new warning/action families only when a real ACL2 sample proves they are needed
+
+## 2026-03-19 Iteration 19
+
+Completed this iteration:
+
+- added a canonical upstream fallback for `acl2_samples/2009-tri-sq.lisp`, so the dynamic hint bridge now loads the real workshop `tri-sq.lisp` book instead of failing on the excerpt's missing local `log2.lisp`
+- taught `scripts/acl2_hint_bridge.py` to turn ACL2 `[Use]` warnings into explicit goal-targeted `use` actions in addition to the existing disable advice, preserving which emitted subgoal the `:USE` guidance applies to
+- added regression coverage for both the new `tri-sq` fallback and warning-derived goal targeting, and updated `README.md`, `ACL2_SPEC.md`, and `docs/acl-proof-mode.md` so the documented dynamic bridge surface matches the new behavior
+- tracked this slice in Linear as `ALOK-558`
+
+Verification:
+
+- research branch commit `4751d4d`: `uv run python scripts/test_acl2_hint_bridge.py`
+- research branch commit `4751d4d`: `uv run python scripts/acl2_hint_bridge.py --book acl2_samples/2009-tri-sq.lisp --theorem pair-pow-log-is-correct`
+- research branch commit `4751d4d`: `./.lake/build/bin/acl2lean hints acl2_samples/2009-tri-sq.lisp pair-pow-log-is-correct | sed -n '1,180p'`
+- research branch commit `4751d4d`: `LAKE_NO_CACHE=1 lake build ACL2Lean.HintBridge ACL2Lean.ProofMode Main`
+- research branch commit `4751d4d`: `LAKE_NO_CACHE=1 lake build`
+- research branch commit `4751d4d`: `uv run python Verify.py`
+
+Outcome:
+
+- keep
+- not promoted to `main` yet
+
+Notes:
+
+- `pair-pow-log-is-correct` is now a concrete dynamic-oracle acceptance test for subgoal-specific `:USE` guidance: the bridge resolves the excerpted repo sample to the upstream workshop book and surfaces separate `use PAIR-POW-2N-2N+1 in Subgoal *1/2` and `use ... in Subgoal *1/1` actions instead of only one collapsed summary hint-event
+- this is a real hint-generator-path advance because it keeps more of ACL2's emitted replay intent attached to the checkpoints where ACL2 actually used it, but I did not promote it to `main` yet because the broader dynamic hint-bridge stack still lives only on the research branch
+
+Next best ideas:
+
+1. start executing the accumulated dynamic replay actions against Lean goals, especially now that `use` guidance can carry checkpoint-local targeting from the oracle path
+2. enrich the dynamic bridge with more checkpoint-local structure only when ACL2 emits it in real transcripts, keeping theorem/sample coverage ahead of speculative schema growth
+3. decide when the recent dynamic hint-bridge slices are coherent enough to promote together to `main` as one stable replay-infrastructure batch
