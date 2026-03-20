@@ -249,6 +249,21 @@ private theorem expt_two_succ_flog2_eq_natExpr_of_pos {z : Int} (hz : 0 < z) :
   intro hneg
   omega
 
+private theorem two_plus_flog2_eq_natExpr_of_pos {z : Int} (hz : 0 < z) :
+    Logic.plus (intExpr 2) (flog2 (intExpr z)) =
+      natExpr (2 + flog2Nat z.toNat) := by
+  simp [Logic.plus, flog2, intExpr, natExpr, hz]
+
+private theorem one_plus_two_times_flog2_eq_natExpr_of_pos {z : Int} (hz : 0 < z) :
+    Logic.plus (intExpr 1) (Logic.times (intExpr 2) (flog2 (intExpr z))) =
+      natExpr (1 + 2 * flog2Nat z.toNat) := by
+  simp [Logic.plus, Logic.times, flog2, intExpr, natExpr, hz]
+
+private theorem two_plus_two_times_flog2_eq_natExpr_of_pos {z : Int} (hz : 0 < z) :
+    Logic.plus (intExpr 2) (Logic.times (intExpr 2) (flog2 (intExpr z))) =
+      natExpr (2 + 2 * flog2Nat z.toNat) := by
+  simp [Logic.plus, Logic.times, flog2, intExpr, natExpr, hz]
+
 /--
 Reconstruction of ACL2 theorem `natp-clog2` from
 `acl2_samples/2009-log2.lisp`.
@@ -582,6 +597,211 @@ theorem nbr_calls_clog2_eq_1_plus_clog2 (n : SExpr) :
                   simp [hEq]]
                 rfl
               · simp [hz, Logic.implies, Logic.posp]
+          | _ =>
+              simp [Logic.implies, Logic.posp]
+      | _ =>
+          simp [Logic.implies, Logic.posp]
+
+/--
+Reconstruction of ACL2 theorem `nbr-calls-flog2-lower-bound` from
+`acl2_samples/2009-log2.lisp`.
+-/
+theorem nbr_calls_flog2_lower_bound (n : SExpr) :
+    Logic.toBool
+      (Logic.implies (Logic.posp n)
+        (Logic.le (Logic.plus (intExpr 2) (flog2 n)) (nbrCallsFlog2 n))) = true := by
+  cases n with
+  | nil =>
+      simp [Logic.implies, Logic.posp]
+  | cons a d =>
+      simp [Logic.implies, Logic.posp]
+  | atom a =>
+      cases a with
+      | number value =>
+          cases value with
+          | int z =>
+              by_cases hz : 0 < z
+              · have hNat : 2 + flog2Nat z.toNat ≤ nbrCallsFlog2Nat z.toNat :=
+                  nbrCallsFlog2Nat_lower z.toNat (int_toNat_pos hz)
+                have hLe :
+                    Logic.le (Logic.plus (intExpr 2) (flog2 (intExpr z))) (nbrCallsFlog2 (intExpr z)) =
+                      .atom (.bool true) := by
+                  rw [two_plus_flog2_eq_natExpr_of_pos hz, nbrCallsFlog2_eq_natExpr_of_pos hz]
+                  have hInt :
+                      Int.ofNat (2 + flog2Nat z.toNat) ≤ Int.ofNat (nbrCallsFlog2Nat z.toNat) :=
+                    Int.ofNat_le.mpr hNat
+                  simpa [Logic.le, intExpr, natExpr] using hInt
+                change
+                  Logic.toBool
+                    (Logic.implies (Logic.posp (intExpr z))
+                      (Logic.le (Logic.plus (intExpr 2) (flog2 (intExpr z))) (nbrCallsFlog2 (intExpr z)))) =
+                    true
+                rw [show Logic.posp (intExpr z) = .atom (.bool true) by
+                  simp [Logic.posp, intExpr, hz]]
+                rw [hLe]
+                rfl
+              · simp [Logic.implies, Logic.posp, hz]
+          | _ =>
+              simp [Logic.implies, Logic.posp]
+      | _ =>
+          simp [Logic.implies, Logic.posp]
+
+/--
+Reconstruction of ACL2 theorem `nbr-calls-flog2-upper-bound` from
+`acl2_samples/2009-log2.lisp`.
+-/
+theorem nbr_calls_flog2_upper_bound (n : SExpr) :
+    Logic.toBool
+      (Logic.and
+        (Logic.implies (Logic.and (Logic.posp n) (Logic.evenp n))
+          (Logic.le (nbrCallsFlog2 n)
+            (Logic.plus (intExpr 1) (Logic.times (intExpr 2) (flog2 n)))))
+        (Logic.implies (Logic.and (Logic.posp n) (Logic.oddp n))
+          (Logic.le (nbrCallsFlog2 n)
+            (Logic.plus (intExpr 2) (Logic.times (intExpr 2) (flog2 n)))))) = true := by
+  cases n with
+  | nil =>
+      simp [Logic.and, Logic.implies, Logic.posp]
+  | cons a d =>
+      simp [Logic.and, Logic.implies, Logic.posp]
+  | atom a =>
+      cases a with
+      | number value =>
+          cases value with
+          | int z =>
+              have hEven :
+                  Logic.implies (Logic.and (Logic.posp (intExpr z)) (Logic.evenp (intExpr z)))
+                    (Logic.le (nbrCallsFlog2 (intExpr z))
+                      (Logic.plus (intExpr 1) (Logic.times (intExpr 2) (flog2 (intExpr z))))) =
+                    .atom (.bool true) := by
+                by_cases hz : 0 < z
+                · by_cases heven : z % 2 = 0
+                  · have hHalfPos : 0 < z.toNat / 2 := by
+                      omega
+                    have hEqNat : z.toNat = 2 * (z.toNat / 2) := by
+                      omega
+                    have hNat : nbrCallsFlog2Nat z.toNat ≤ 1 + 2 * flog2Nat z.toNat := by
+                      rw [hEqNat]
+                      simpa using (nbrCallsFlog2Nat_even_upper hHalfPos)
+                    have hLe :
+                        Logic.le (nbrCallsFlog2 (intExpr z))
+                          (Logic.plus (intExpr 1) (Logic.times (intExpr 2) (flog2 (intExpr z)))) =
+                          .atom (.bool true) := by
+                      rw [nbrCallsFlog2_eq_natExpr_of_pos hz, one_plus_two_times_flog2_eq_natExpr_of_pos hz]
+                      have hInt :
+                          Int.ofNat (nbrCallsFlog2Nat z.toNat) ≤ Int.ofNat (1 + 2 * flog2Nat z.toNat) :=
+                        Int.ofNat_le.mpr hNat
+                      simpa [Logic.le, intExpr, natExpr] using hInt
+                    rw [show Logic.and (Logic.posp (intExpr z)) (Logic.evenp (intExpr z)) = .atom (.bool true) by
+                      simp [Logic.and, Logic.posp, Logic.evenp, intExpr, hz, heven]]
+                    rw [hLe]
+                    rfl
+                  · simp [Logic.implies, Logic.and, Logic.posp, intExpr, hz, heven]
+                · simp [Logic.implies, Logic.and, Logic.posp, intExpr, hz]
+              have hOdd :
+                  Logic.implies (Logic.and (Logic.posp (intExpr z)) (Logic.oddp (intExpr z)))
+                    (Logic.le (nbrCallsFlog2 (intExpr z))
+                      (Logic.plus (intExpr 2) (Logic.times (intExpr 2) (flog2 (intExpr z))))) =
+                    .atom (.bool true) := by
+                by_cases hz : 0 < z
+                · by_cases hodd : z % 2 ≠ 0
+                  · have hNat : nbrCallsFlog2Nat z.toNat ≤ 2 + 2 * flog2Nat z.toNat :=
+                      nbrCallsFlog2Nat_upper z.toNat (int_toNat_pos hz)
+                    have hLe :
+                        Logic.le (nbrCallsFlog2 (intExpr z))
+                          (Logic.plus (intExpr 2) (Logic.times (intExpr 2) (flog2 (intExpr z)))) =
+                          .atom (.bool true) := by
+                      rw [nbrCallsFlog2_eq_natExpr_of_pos hz, two_plus_two_times_flog2_eq_natExpr_of_pos hz]
+                      have hInt :
+                          Int.ofNat (nbrCallsFlog2Nat z.toNat) ≤ Int.ofNat (2 + 2 * flog2Nat z.toNat) :=
+                        Int.ofNat_le.mpr hNat
+                      simpa [Logic.le, intExpr, natExpr] using hInt
+                    rw [show Logic.and (Logic.posp (intExpr z)) (Logic.oddp (intExpr z)) = .atom (.bool true) by
+                      simp [Logic.and, Logic.posp, Logic.oddp, intExpr, hz, hodd]]
+                    rw [hLe]
+                    rfl
+                  · simp [Logic.implies, Logic.and, Logic.posp, intExpr, hz, hodd]
+                · simp [Logic.implies, Logic.and, Logic.posp, intExpr, hz]
+              change
+                Logic.toBool
+                  (Logic.and
+                    (Logic.implies (Logic.and (Logic.posp (intExpr z)) (Logic.evenp (intExpr z)))
+                      (Logic.le (nbrCallsFlog2 (intExpr z))
+                        (Logic.plus (intExpr 1) (Logic.times (intExpr 2) (flog2 (intExpr z))))))
+                    (Logic.implies (Logic.and (Logic.posp (intExpr z)) (Logic.oddp (intExpr z)))
+                      (Logic.le (nbrCallsFlog2 (intExpr z))
+                        (Logic.plus (intExpr 2) (Logic.times (intExpr 2) (flog2 (intExpr z))))))) =
+                  true
+              rw [hEven, hOdd]
+              simp [Logic.and]
+          | _ =>
+              simp [Logic.and, Logic.implies, Logic.posp]
+      | _ =>
+          simp [Logic.and, Logic.implies, Logic.posp]
+
+/--
+Reconstruction of ACL2 theorem `nbr-calls-flog2-is-logarithmic` from
+`acl2_samples/2009-log2.lisp`.
+-/
+theorem nbr_calls_flog2_is_logarithmic (n : SExpr) :
+    Logic.toBool
+      (Logic.implies (Logic.posp n)
+        (Logic.and
+          (Logic.le (Logic.plus (intExpr 2) (flog2 n)) (nbrCallsFlog2 n))
+          (Logic.le (nbrCallsFlog2 n)
+            (Logic.plus (intExpr 2) (Logic.times (intExpr 2) (flog2 n)))))) = true := by
+  cases n with
+  | nil =>
+      simp [Logic.implies, Logic.posp]
+  | cons a d =>
+      simp [Logic.implies, Logic.posp]
+  | atom a =>
+      cases a with
+      | number value =>
+          cases value with
+          | int z =>
+              by_cases hz : 0 < z
+              · have hLowerNat : 2 + flog2Nat z.toNat ≤ nbrCallsFlog2Nat z.toNat :=
+                    nbrCallsFlog2Nat_lower z.toNat (int_toNat_pos hz)
+                have hUpperNat : nbrCallsFlog2Nat z.toNat ≤ 2 + 2 * flog2Nat z.toNat :=
+                    nbrCallsFlog2Nat_upper z.toNat (int_toNat_pos hz)
+                have hLower :
+                    Logic.le (Logic.plus (intExpr 2) (flog2 (intExpr z))) (nbrCallsFlog2 (intExpr z)) =
+                      .atom (.bool true) := by
+                  rw [two_plus_flog2_eq_natExpr_of_pos hz, nbrCallsFlog2_eq_natExpr_of_pos hz]
+                  have hInt :
+                      Int.ofNat (2 + flog2Nat z.toNat) ≤ Int.ofNat (nbrCallsFlog2Nat z.toNat) :=
+                    Int.ofNat_le.mpr hLowerNat
+                  simpa [Logic.le, intExpr, natExpr] using hInt
+                have hUpper :
+                    Logic.le (nbrCallsFlog2 (intExpr z))
+                      (Logic.plus (intExpr 2) (Logic.times (intExpr 2) (flog2 (intExpr z)))) =
+                      .atom (.bool true) := by
+                  rw [nbrCallsFlog2_eq_natExpr_of_pos hz, two_plus_two_times_flog2_eq_natExpr_of_pos hz]
+                  have hInt :
+                      Int.ofNat (nbrCallsFlog2Nat z.toNat) ≤ Int.ofNat (2 + 2 * flog2Nat z.toNat) :=
+                    Int.ofNat_le.mpr hUpperNat
+                  simpa [Logic.le, intExpr, natExpr] using hInt
+                change
+                  Logic.toBool
+                    (Logic.implies (Logic.posp (intExpr z))
+                      (Logic.and
+                        (Logic.le (Logic.plus (intExpr 2) (flog2 (intExpr z))) (nbrCallsFlog2 (intExpr z)))
+                        (Logic.le (nbrCallsFlog2 (intExpr z))
+                          (Logic.plus (intExpr 2) (Logic.times (intExpr 2) (flog2 (intExpr z))))))) =
+                    true
+                rw [show Logic.posp (intExpr z) = .atom (.bool true) by
+                  simp [Logic.posp, intExpr, hz]]
+                rw [show
+                  Logic.and
+                    (Logic.le (Logic.plus (intExpr 2) (flog2 (intExpr z))) (nbrCallsFlog2 (intExpr z)))
+                    (Logic.le (nbrCallsFlog2 (intExpr z))
+                      (Logic.plus (intExpr 2) (Logic.times (intExpr 2) (flog2 (intExpr z))))) =
+                  .atom (.bool true) by
+                  rw [hLower, hUpper]
+                  rfl]
+                rfl
+              · simp [Logic.implies, Logic.posp, hz]
           | _ =>
               simp [Logic.implies, Logic.posp]
       | _ =>

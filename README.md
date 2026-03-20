@@ -9,7 +9,7 @@ This project provides a bridge between ACL2 and Lean 4, allowing for parsing, ev
 - **Automated Translator**: Translates ACL2 `defun` and `defthm` into Lean `def` and `theorem` statements.
 - **Proving Support**: Includes `acl2_simp` and `acl2_grind` tactics.
 - **Internal SMT Solver**: Leverages Lean's `grind` tactic with linear integer arithmetic (`cutsat`) support for automated proofs of arithmetic properties.
-- **Checked Imported Theorem Bundle**: `ACL2.Imported.Log2Replay` now reconstructs a small ACL2 theorem cluster from `acl2_samples/2009-log2.lisp`, including `clog2_is_correct`, `clog2_is_correct_upper`, `clog2_is_correct_lower`, `natp_clog2`, `posp_clog2`, and `nbr_calls_clog2_eq_1_plus_clog2`.
+- **Checked Imported Theorem Bundle**: `ACL2.Imported.Log2Replay` now reconstructs a larger ACL2 theorem cluster from `acl2_samples/2009-log2.lisp`, including `clog2_is_correct`, `clog2_is_correct_upper`, `clog2_is_correct_lower`, `natp_clog2`, `posp_clog2`, `nbr_calls_clog2_eq_1_plus_clog2`, `nbr_calls_flog2_lower_bound`, `nbr_calls_flog2_upper_bound`, and `nbr_calls_flog2_is_logarithmic`.
 
 ## Getting Started
 
@@ -60,8 +60,13 @@ The intended split is:
   - `ACL2.Imported.Log2Replay.clog2_is_correct_upper`
   - `ACL2.Imported.Log2Replay.clog2_is_correct`
   - `ACL2.Imported.Log2Replay.nbr_calls_clog2_eq_1_plus_clog2`
+  - `ACL2.Imported.Log2Replay.nbr_calls_flog2_lower_bound`
+  - `ACL2.Imported.Log2Replay.nbr_calls_flog2_upper_bound`
+  - `ACL2.Imported.Log2Replay.nbr_calls_flog2_is_logarithmic`
 
 The current replay strategy lowers the positive-integer execution path of the imported ACL2 functions into a small `Nat` semantic mirror, proves the central `clog2` bounds there, and lifts those facts back to the ACL2 `SExpr` encoding. This is not yet a generic replay engine, but it is a real kernel-checked imported theorem bundle rather than another metadata-only placeholder.
+
+That bundle now also covers the `nbr-calls-flog2` bounds used by ACL2's own proof search. In particular, the dynamic hint bridge's theorem-local `:USE NBR-CALLS-FLOG2-UPPER-BOUND` guidance for `nbr-calls-flog2-is-logarithmic` now points at a corresponding kernel-checked Lean theorem in `ACL2.Imported.Log2Replay`.
 
 ## Automated Proving with `grind`
 
