@@ -226,7 +226,21 @@ instance : OfNat SExpr n where
 
 @[simp] theorem toNat_minus_one (n : SExpr) (h : toBool (zp n) = false) :
   toNat (minus n (SExpr.atom (Atom.number (Number.int 1)))) < toNat n := by
-  sorry
+  cases n with
+  | nil => simp [zp, toBool] at h
+  | cons _ _ => simp [zp, toInt, toBool] at h
+  | atom a =>
+    cases a with
+    | symbol _ | keyword _ | string _ | bool _ => simp [zp, toInt, toBool] at h
+    | number num =>
+      cases num with
+      | rational _ _ | decimal _ _ => simp [zp, toInt, toBool] at h
+      | int k =>
+        simp only [zp, toInt] at h
+        split at h
+        · simp [toBool] at h
+        · simp [minus, toNat, toInt]
+          omega
 
 @[simp, grind] theorem car_cons (a d : SExpr) : car (cons a d) = a := rfl
 
@@ -264,16 +278,40 @@ instance : OfNat SExpr n where
   simp [equal]
 
 @[grind] theorem toBool_equal (a b : SExpr) : toBool (equal a b) = true ↔ a = b := by
-  sorry
+  unfold equal; split
+  · simp_all [toBool]
+  · simp_all [toBool]
 
 @[grind] theorem toBool_eq (a b : SExpr) : toBool (eq a b) = true ↔ a = b := by
-  sorry
+  unfold eq; split
+  · simp_all [toBool]
+  · simp_all [toBool]
 
 @[grind] theorem equal_toInt (x : SExpr) : toBool (integerp x) = true → equal x (.atom (.number (.int (toInt x)))) = .atom (.bool true) := by
-  sorry
+  intro h
+  cases x with
+  | nil => simp [integerp, toBool] at h
+  | cons _ _ => simp [integerp, toBool] at h
+  | atom a =>
+    cases a with
+    | symbol _ | keyword _ | string _ | bool _ => simp [integerp, toBool] at h
+    | number n =>
+      cases n with
+      | rational _ _ | decimal _ _ => simp [integerp, toBool] at h
+      | int k => simp [equal, toInt]
 
 @[grind] theorem integerp_toInt (x : SExpr) : toBool (integerp x) = true → x = .atom (.number (.int (toInt x))) := by
-  sorry
+  intro h
+  cases x with
+  | nil => simp [integerp, toBool] at h
+  | cons _ _ => simp [integerp, toBool] at h
+  | atom a =>
+    cases a with
+    | symbol _ | keyword _ | string _ | bool _ => simp [integerp, toBool] at h
+    | number n =>
+      cases n with
+      | rational _ _ | decimal _ _ => simp [integerp, toBool] at h
+      | int k => simp [toInt]
 
 @[simp] theorem toInt_minus (a b : SExpr) : toInt (minus a b) = toInt a - toInt b := by
   simp [minus, toInt]
@@ -290,10 +328,28 @@ instance : OfNat SExpr n where
 @[simp, grind] theorem cdr_nil : cdr .nil = .nil := rfl
 
 @[simp, grind] theorem toBool_consp (s : SExpr) : toBool (consp s) = true ↔ ∃ a d, s = cons a d := by
-  sorry
+  constructor
+  · intro h
+    cases s with
+    | nil => simp [consp, toBool] at h
+    | atom _ => simp [consp, toBool] at h
+    | cons a d => exact ⟨a, d, rfl⟩
+  · intro ⟨a, d, h⟩; subst h; simp [consp, toBool]
 
 @[simp, grind] theorem toBool_integerp (s : SExpr) : toBool (integerp s) = true ↔ ∃ n, s = .atom (.number (.int n)) := by
-  sorry
+  constructor
+  · intro h
+    cases s with
+    | nil => simp [integerp, toBool] at h
+    | cons _ _ => simp [integerp, toBool] at h
+    | atom a =>
+      cases a with
+      | symbol _ | keyword _ | string _ | bool _ => simp [integerp, toBool] at h
+      | number n =>
+        cases n with
+        | rational _ _ | decimal _ _ => simp [integerp, toBool] at h
+        | int k => exact ⟨k, rfl⟩
+  · intro ⟨n, h⟩; subst h; simp [integerp, toBool]
 
 end Logic
 end ACL2
