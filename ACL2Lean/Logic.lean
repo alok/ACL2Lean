@@ -25,33 +25,66 @@ open ACL2
 @[inline, simp] def toNat (s : SExpr) : Nat :=
   (toInt s).toNat
 
+/-- Extract (numerator, denominator) from any SExpr. Non-numbers → (0, 1). -/
+@[inline] def toRat (s : SExpr) : Int × Nat :=
+  match s with
+  | .atom (.number (.int n)) => (n, 1)
+  | .atom (.number (.rational n d)) => if d = 0 then (0, 1) else (n, d)
+  | .atom (.number (.decimal m e)) =>
+    if e >= 0 then (m * (10 ^ e.toNat), 1)
+    else (m, 10 ^ (-e).toNat)
+  | _ => (0, 1)
+
+/-- Construct a normalized number SExpr from numerator/denominator.
+    Reduces by GCD; returns an integer when denominator divides out. -/
+@[inline] def mkNumber (n : Int) (d : Nat) : SExpr :=
+  if d = 0 then .atom (.number (.int 0))
+  else
+    let g := Nat.gcd n.natAbs d
+    let n' := n / Int.ofNat g
+    let d' := d / g
+    if d' = 1 then .atom (.number (.int n'))
+    else .atom (.number (.rational n' d'))
+
 /-- ACL2 `zp`: true if `n` is not a positive integer. -/
 @[inline, simp] def zp (n : SExpr) : SExpr :=
   if toInt n <= 0 then .t else .nil
 
-/-- ACL2 `plus`. -/
-@[inline, simp] def plus (a b : SExpr) : SExpr :=
-  .atom (.number (.int (toInt a + toInt b)))
+/-- ACL2 `plus`. Full rational arithmetic. -/
+@[inline] def plus (a b : SExpr) : SExpr :=
+  let (an, ad) := toRat a
+  let (bn, bd) := toRat b
+  mkNumber (an * bd + bn * ad) (ad * bd)
 
-/-- ACL2 `minus`. -/
-@[inline, simp] def minus (a b : SExpr) : SExpr :=
-  .atom (.number (.int (toInt a - toInt b)))
+/-- ACL2 `minus`. Full rational arithmetic. -/
+@[inline] def minus (a b : SExpr) : SExpr :=
+  let (an, ad) := toRat a
+  let (bn, bd) := toRat b
+  mkNumber (an * bd - bn * ad) (ad * bd)
 
-/-- ACL2 `times`. -/
-@[inline, simp] def times (a b : SExpr) : SExpr :=
-  .atom (.number (.int (toInt a * toInt b)))
+/-- ACL2 `times`. Full rational arithmetic. -/
+@[inline] def times (a b : SExpr) : SExpr :=
+  let (an, ad) := toRat a
+  let (bn, bd) := toRat b
+  mkNumber (an * bn) (ad * bd)
 
-/-- ACL2 `div`. -/
-@[inline, simp] def div (a b : SExpr) : SExpr :=
-  let x := toInt a
-  let y := toInt b
-  if y == 0 then .atom (.number (.int 0))
-  else if x % y == 0 then .atom (.number (.int (x / y)))
-  else .atom (.number (.rational x y.toNat))
+/-- ACL2 `div`. Full rational arithmetic. -/
+@[inline] def div (a b : SExpr) : SExpr :=
+  let (an, ad) := toRat a
+  let (bn, bd) := toRat b
+  if bn == 0 then .atom (.number (.int 0))
+  else
+    -- (an/ad) / (bn/bd) = (an*bd) / (ad*bn)
+    let rn := an * bd
+    let rd := ad * bn.natAbs
+    let rn := if bn < 0 then -rn else rn
+    mkNumber rn rd
 
-/-- ACL2 `lt`. -/
+/-- ACL2 `lt`. Full rational comparison. -/
 @[inline, simp] def lt (a b : SExpr) : SExpr :=
-  if toInt a < toInt b then .t else .nil
+  let (an, ad) := toRat a
+  let (bn, bd) := toRat b
+  if an * bd < bn * ad then .t else .nil
 
 /-- ACL2 `eq`. -/
 @[inline, simp] def eq (a b : SExpr) : SExpr :=
@@ -154,17 +187,23 @@ open ACL2
     else .atom (.number (.rational 1 denom.toNat))
   else .atom (.number (.int (x ^ y.toNat)))
 
-/-- ACL2 `le` (<=). -/
+/-- ACL2 `le` (<=). Full rational comparison. -/
 @[inline, simp] def le (a b : SExpr) : SExpr :=
-  if toInt a <= toInt b then .t else .nil
+  let (an, ad) := toRat a
+  let (bn, bd) := toRat b
+  if an * bd ≤ bn * ad then .t else .nil
 
-/-- ACL2 `ge` (>=). -/
+/-- ACL2 `ge` (>=). Full rational comparison. -/
 @[inline, simp] def ge (a b : SExpr) : SExpr :=
-  if toInt a >= toInt b then .t else .nil
+  let (an, ad) := toRat a
+  let (bn, bd) := toRat b
+  if an * bd ≥ bn * ad then .t else .nil
 
-/-- ACL2 `gt` (>). -/
+/-- ACL2 `gt` (>). Full rational comparison. -/
 @[inline, simp] def gt (a b : SExpr) : SExpr :=
-  if toInt a > toInt b then .t else .nil
+  let (an, ad) := toRat a
+  let (bn, bd) := toRat b
+  if an * bd > bn * ad then .t else .nil
 
 @[inline, simp] def rational (n : Int) (d : Nat) : SExpr :=
   .atom (.number (.rational n d))
@@ -267,7 +306,7 @@ instance : OfNat SExpr n where
         simp only [zp, toInt] at h
         split at h
         · simp [toBool] at h
-        · simp [minus, toNat, toInt]
+        · simp [minus, toRat, mkNumber, toNat, toInt]
           omega
 
 @[simp, grind] theorem car_cons (a d : SExpr) : car (cons a d) = a := rfl
@@ -285,8 +324,9 @@ instance : OfNat SExpr n where
 @[grind] theorem equal_self (x : SExpr) : equal x x = .t := by
   simp [equal]
 
-@[simp, grind] theorem toInt_plus (a b : SExpr) : toInt (plus a b) = toInt a + toInt b := by
-  simp [plus, toInt]
+@[simp, grind] theorem toInt_plus_int (m n : Int) :
+    toInt (plus (.atom (.number (.int m))) (.atom (.number (.int n)))) = m + n := by
+  simp [plus, toRat, mkNumber, toInt]
 
 @[simp, grind] theorem toInt_int (n : Int) : toInt (.atom (.number (.int n))) = n := rfl
 
@@ -294,13 +334,25 @@ instance : OfNat SExpr n where
 
 @[simp, grind] theorem toInt_cons (a d : SExpr) : toInt (.cons a d) = 0 := rfl
 
-@[simp, grind] theorem plus_def (a b : SExpr) : plus a b = .atom (.number (.int (toInt a + toInt b))) := rfl
+@[simp, grind] theorem plus_int (m n : Int) :
+    plus (.atom (.number (.int m))) (.atom (.number (.int n))) =
+    .atom (.number (.int (m + n))) := by
+  simp [plus, toRat, mkNumber]
 
-@[simp, grind] theorem minus_def (a b : SExpr) : minus a b = .atom (.number (.int (toInt a - toInt b))) := rfl
+@[simp, grind] theorem minus_int (m n : Int) :
+    minus (.atom (.number (.int m))) (.atom (.number (.int n))) =
+    .atom (.number (.int (m - n))) := by
+  simp [minus, toRat, mkNumber]
 
-@[simp, grind] theorem times_def (a b : SExpr) : times a b = .atom (.number (.int (toInt a * toInt b))) := rfl
+@[simp, grind] theorem times_int (m n : Int) :
+    times (.atom (.number (.int m))) (.atom (.number (.int n))) =
+    .atom (.number (.int (m * n))) := by
+  simp [times, toRat, mkNumber]
 
-@[simp, grind] theorem lt_def (a b : SExpr) : lt a b = if toInt a < toInt b then .t else .nil := rfl
+@[simp, grind] theorem lt_int (m n : Int) :
+    lt (.atom (.number (.int m))) (.atom (.number (.int n))) =
+    if m < n then .t else .nil := by
+  simp [lt, toRat]
 
 @[simp, grind] theorem equal_atom_int (n m : Int) : equal (.atom (.number (.int n))) (.atom (.number (.int m))) = (if n = m then .t else .nil) := by
   simp [equal]
@@ -341,11 +393,13 @@ instance : OfNat SExpr n where
       | rational _ _ | decimal _ _ => simp [integerp, toBool] at h
       | int k => simp [toInt]
 
-@[simp] theorem toInt_minus (a b : SExpr) : toInt (minus a b) = toInt a - toInt b := by
-  simp [minus, toInt]
+@[simp] theorem toInt_minus_int (m n : Int) :
+    toInt (minus (.atom (.number (.int m))) (.atom (.number (.int n)))) = m - n := by
+  simp [minus, toRat, mkNumber, toInt]
 
-@[simp] theorem toInt_times (a b : SExpr) : toInt (times a b) = toInt a * toInt b := by
-  simp [times, toInt]
+@[simp] theorem toInt_times_int (m n : Int) :
+    toInt (times (.atom (.number (.int m))) (.atom (.number (.int n)))) = m * n := by
+  simp [times, toRat, mkNumber, toInt]
 
 @[simp, grind] theorem consp_cons (a d : SExpr) : consp (cons a d) = .t := rfl
 

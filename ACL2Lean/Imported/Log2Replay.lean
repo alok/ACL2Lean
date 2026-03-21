@@ -82,7 +82,7 @@ private theorem expt_two_pred_clog2_eq_natExpr_of_gt_one {z : Int} (hz : 1 < z) 
     have : (1 : Int) ≤ Int.ofNat (clog2Nat z.toNat) :=
       Int.ofNat_le.mpr (Nat.succ_le_of_lt hclog)
     omega
-  simp [Logic.expt, Logic.plus, clog2, intExpr, natExpr, hz0]
+  simp [Logic.expt, Logic.plus, toRat, mkNumber, clog2, intExpr, natExpr, hz0]
   have htoNat : (-1 + (clog2Nat z.toNat : Int)).toNat = clog2Nat z.toNat - 1 := by
     calc
       (-1 + (clog2Nat z.toNat : Int)).toNat = (((clog2Nat z.toNat : Nat) : Int) - 1).toNat := by
@@ -229,7 +229,7 @@ private theorem expt_two_succ_flog2_eq_natExpr_of_pos {z : Int} (hz : 0 < z) :
     Logic.expt (intExpr 2) (Logic.plus (intExpr 1) (flog2 (intExpr z))) =
       natExpr (2 ^ (flog2Nat z.toNat + 1)) := by
   have hPlus : Logic.plus (intExpr 1) (flog2 (intExpr z)) = natExpr (flog2Nat z.toNat + 1) := by
-    simp [Logic.plus, flog2, intExpr, natExpr, hz]
+    simp [Logic.plus, toRat, mkNumber, flog2, intExpr, natExpr, hz]
     omega
   rw [hPlus]
   simp [Logic.expt, intExpr, natExpr]
@@ -239,17 +239,17 @@ private theorem expt_two_succ_flog2_eq_natExpr_of_pos {z : Int} (hz : 0 < z) :
 private theorem two_plus_flog2_eq_natExpr_of_pos {z : Int} (hz : 0 < z) :
     Logic.plus (intExpr 2) (flog2 (intExpr z)) =
       natExpr (2 + flog2Nat z.toNat) := by
-  simp [Logic.plus, flog2, intExpr, natExpr, hz]
+  simp [Logic.plus, toRat, mkNumber, flog2, intExpr, natExpr, hz]
 
 private theorem one_plus_two_times_flog2_eq_natExpr_of_pos {z : Int} (hz : 0 < z) :
     Logic.plus (intExpr 1) (Logic.times (intExpr 2) (flog2 (intExpr z))) =
       natExpr (1 + 2 * flog2Nat z.toNat) := by
-  simp [Logic.plus, Logic.times, flog2, intExpr, natExpr, hz]
+  simp [Logic.plus, Logic.times, toRat, mkNumber, flog2, intExpr, natExpr, hz]
 
 private theorem two_plus_two_times_flog2_eq_natExpr_of_pos {z : Int} (hz : 0 < z) :
     Logic.plus (intExpr 2) (Logic.times (intExpr 2) (flog2 (intExpr z))) =
       natExpr (2 + 2 * flog2Nat z.toNat) := by
-  simp [Logic.plus, Logic.times, flog2, intExpr, natExpr, hz]
+  simp [Logic.plus, Logic.times, toRat, mkNumber, flog2, intExpr, natExpr, hz]
 
 /--
 Reconstruction of ACL2 theorem `natp-clog2` from
@@ -272,7 +272,7 @@ theorem natp_clog2 (n : SExpr) :
               by_cases hz : 0 < z
               · have hGe : Logic.ge (clog2 (intExpr z)) (intExpr 0) = .t := by
                   rw [clog2_eq_natExpr_of_pos hz]
-                  simp [Logic.ge, intExpr, natExpr]
+                  simp [Logic.ge, toRat, intExpr, natExpr]
                 change
                   Logic.toBool
                     (Logic.implies
@@ -280,10 +280,10 @@ theorem natp_clog2 (n : SExpr) :
                       (Logic.ge (clog2 (intExpr z)) (intExpr 0))) = true
                 rw [show Logic.and (Logic.integerp (intExpr z)) (Logic.gt (intExpr z) (intExpr 0)) =
                     .t by
-                  simp [Logic.and, Logic.integerp, Logic.gt, intExpr, hz]]
+                  simp [Logic.and, Logic.integerp, Logic.gt, toRat, intExpr, hz]]
                 rw [hGe]
                 rfl
-              · simp [Logic.implies, Logic.and, Logic.integerp, Logic.gt, intExpr, hz]
+              · simp [Logic.implies, Logic.and, Logic.integerp, Logic.gt, toRat, intExpr, hz]
           | _ =>
               simp [Logic.implies, Logic.integerp]
       | _ =>
@@ -311,7 +311,7 @@ theorem posp_clog2 (n : SExpr) :
               · have hz0 : 0 < z := by omega
                 have hGt : Logic.gt (clog2 (intExpr z)) (intExpr 0) = .t := by
                   rw [clog2_eq_natExpr_of_pos hz0]
-                  simp [Logic.gt, intExpr, natExpr, clog2Nat_pos (int_toNat_gt_one hz)]
+                  simp [Logic.gt, toRat, intExpr, natExpr, clog2Nat_pos (int_toNat_gt_one hz)]
                 change
                   Logic.toBool
                     (Logic.implies
@@ -319,10 +319,10 @@ theorem posp_clog2 (n : SExpr) :
                       (Logic.gt (clog2 (intExpr z)) (intExpr 0))) = true
                 rw [show Logic.and (Logic.integerp (intExpr z)) (Logic.gt (intExpr z) (intExpr 1)) =
                     .t by
-                  simp [Logic.and, Logic.integerp, Logic.gt, intExpr, hz]]
+                  simp [Logic.and, Logic.integerp, Logic.gt, toRat, intExpr, hz]]
                 rw [hGt]
                 rfl
-              · simp [Logic.implies, Logic.and, Logic.integerp, Logic.gt, intExpr, hz]
+              · simp [Logic.implies, Logic.and, Logic.integerp, Logic.gt, toRat, intExpr, hz]
           | _ =>
               simp [Logic.implies, Logic.integerp]
       | _ =>
@@ -375,7 +375,7 @@ theorem clog2_is_correct_lower (n : SExpr) :
                       Logic.lt (Logic.expt (intExpr 2) (Logic.plus (intExpr (-1)) (clog2 (intExpr z))))
                         (intExpr z) = .t := by
                     rw [expt_two_pred_clog2_eq_natExpr_of_gt_one (by omega : 1 < z)]
-                    simpa [Logic.lt, intExpr, natExpr] using hInt
+                    simpa [Logic.lt, toRat, intExpr, natExpr] using hInt
                   change
                     Logic.toBool
                       (Logic.implies (Logic.posp (intExpr z))
@@ -418,7 +418,7 @@ theorem clog2_is_correct_upper (n : SExpr) :
                 have hLe : Logic.le (intExpr z) (Logic.expt (intExpr 2) (clog2 (intExpr z))) =
                     .t := by
                   rw [expt_two_clog2_eq_natExpr_of_pos hz]
-                  simpa [Logic.le, intExpr, natExpr] using hInt
+                  simpa [Logic.le, toRat, intExpr, natExpr] using hInt
                 change
                   Logic.toBool
                     (Logic.implies (Logic.natp (intExpr z))
@@ -513,12 +513,12 @@ theorem clog2_is_correct (n : SExpr) :
                       Logic.lt (Logic.expt (intExpr 2) (Logic.plus (intExpr (-1)) (clog2 (intExpr z))))
                         (intExpr z) = .t := by
                     rw [expt_two_pred_clog2_eq_natExpr_of_gt_one (by omega : 1 < z)]
-                    simpa [Logic.lt, intExpr, natExpr] using hLowerInt
+                    simpa [Logic.lt, toRat, intExpr, natExpr] using hLowerInt
                   have hLe :
                       Logic.le (intExpr z) (Logic.expt (intExpr 2) (clog2 (intExpr z))) =
                         .t := by
                     rw [expt_two_clog2_eq_natExpr_of_pos hz]
-                    simpa [Logic.le, intExpr, natExpr] using hUpperInt
+                    simpa [Logic.le, toRat, intExpr, natExpr] using hUpperInt
                   change
                     Logic.toBool
                       (Logic.implies (Logic.posp (intExpr z))
@@ -569,7 +569,7 @@ theorem nbr_calls_clog2_eq_1_plus_clog2 (n : SExpr) :
                 have hNat : 0 < z.toNat :=
                   Int.ofNat_lt.mp hzNatInt
                 have hEq : nbrCallsClog2 (intExpr z) = Logic.plus (intExpr 1) (clog2 (intExpr z)) := by
-                  simp [nbrCallsClog2, clog2, intExpr, natExpr, hz, Logic.plus,
+                  simp [nbrCallsClog2, clog2, intExpr, natExpr, hz, Logic.plus, toRat, mkNumber,
                     nbrCallsClog2Nat_eq_1_plus_clog2Nat hNat]
                   omega
                 change
@@ -617,7 +617,7 @@ theorem nbr_calls_flog2_lower_bound (n : SExpr) :
                   have hInt :
                       Int.ofNat (2 + flog2Nat z.toNat) ≤ Int.ofNat (nbrCallsFlog2Nat z.toNat) :=
                     Int.ofNat_le.mpr hNat
-                  simpa [Logic.le, intExpr, natExpr] using hInt
+                  simpa [Logic.le, toRat, intExpr, natExpr] using hInt
                 change
                   Logic.toBool
                     (Logic.implies (Logic.posp (intExpr z))
@@ -678,7 +678,7 @@ theorem nbr_calls_flog2_upper_bound (n : SExpr) :
                       have hInt :
                           Int.ofNat (nbrCallsFlog2Nat z.toNat) ≤ Int.ofNat (1 + 2 * flog2Nat z.toNat) :=
                         Int.ofNat_le.mpr hNat
-                      simpa [Logic.le, intExpr, natExpr] using hInt
+                      simpa [Logic.le, toRat, intExpr, natExpr] using hInt
                     rw [show Logic.and (Logic.posp (intExpr z)) (Logic.evenp (intExpr z)) = .t by
                       simp [Logic.and, Logic.posp, Logic.evenp, intExpr, hz, heven]]
                     rw [hLe]
@@ -702,7 +702,7 @@ theorem nbr_calls_flog2_upper_bound (n : SExpr) :
                       have hInt :
                           Int.ofNat (nbrCallsFlog2Nat z.toNat) ≤ Int.ofNat (2 + 2 * flog2Nat z.toNat) :=
                         Int.ofNat_le.mpr hNat
-                      simpa [Logic.le, intExpr, natExpr] using hInt
+                      simpa [Logic.le, toRat, intExpr, natExpr] using hInt
                     rw [show Logic.and (Logic.posp (intExpr z)) (Logic.oddp (intExpr z)) = .t by
                       simp [Logic.and, Logic.posp, Logic.oddp, intExpr, hz, hodd]]
                     rw [hLe]
@@ -759,7 +759,7 @@ theorem nbr_calls_flog2_is_logarithmic (n : SExpr) :
                   have hInt :
                       Int.ofNat (2 + flog2Nat z.toNat) ≤ Int.ofNat (nbrCallsFlog2Nat z.toNat) :=
                     Int.ofNat_le.mpr hLowerNat
-                  simpa [Logic.le, intExpr, natExpr] using hInt
+                  simpa [Logic.le, toRat, intExpr, natExpr] using hInt
                 have hUpper :
                     Logic.le (nbrCallsFlog2 (intExpr z))
                       (Logic.plus (intExpr 2) (Logic.times (intExpr 2) (flog2 (intExpr z)))) =
@@ -768,7 +768,7 @@ theorem nbr_calls_flog2_is_logarithmic (n : SExpr) :
                   have hInt :
                       Int.ofNat (nbrCallsFlog2Nat z.toNat) ≤ Int.ofNat (2 + 2 * flog2Nat z.toNat) :=
                     Int.ofNat_le.mpr hUpperNat
-                  simpa [Logic.le, intExpr, natExpr] using hInt
+                  simpa [Logic.le, toRat, intExpr, natExpr] using hInt
                 change
                   Logic.toBool
                     (Logic.implies (Logic.posp (intExpr z))
