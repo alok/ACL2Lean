@@ -26,6 +26,10 @@ translate-sorting:
 translate-dir dir:
     ./scripts/translate-book.sh {{dir}} --verify
 
+# Build ACL2 from the submodule
+build-acl2:
+    cd acl2 && make LISP=sbcl
+
 
 
 
