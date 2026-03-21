@@ -72,8 +72,6 @@ private theorem clog2_eq_natExpr_of_pos {z : Int} (hz : 0 < z) :
 private theorem expt_two_clog2_eq_natExpr_of_pos {z : Int} (hz : 0 < z) :
     Logic.expt (intExpr 2) (clog2 (intExpr z)) = natExpr (2 ^ clog2Nat z.toNat) := by
   simp [Logic.expt, clog2, intExpr, natExpr, hz]
-  intro hneg
-  omega
 
 private theorem expt_two_pred_clog2_eq_natExpr_of_gt_one {z : Int} (hz : 1 < z) :
     Logic.expt (intExpr 2) (Logic.plus (intExpr (-1)) (clog2 (intExpr z))) =
@@ -91,16 +89,7 @@ private theorem expt_two_pred_clog2_eq_natExpr_of_gt_one {z : Int} (hz : 1 < z) 
         omega
       _ = clog2Nat z.toNat - 1 := by
         simp
-  change
-    (if -1 + (clog2Nat z.toNat : Int) < 0 then intExpr 0
-      else intExpr (2 ^ ((-1 + (clog2Nat z.toNat : Int)).toNat))) =
-      intExpr (2 ^ (clog2Nat z.toNat - 1))
-  have hIf :
-      (if -1 + (clog2Nat z.toNat : Int) < 0 then intExpr 0
-        else intExpr (2 ^ ((-1 + (clog2Nat z.toNat : Int)).toNat))) =
-        intExpr (2 ^ ((-1 + (clog2Nat z.toNat : Int)).toNat)) := by
-    exact if_neg hnonneg
-  rw [hIf, htoNat]
+  split <;> simp_all
 
 private theorem nbrCallsClog2Nat_eq_1_plus_clog2Nat {n : Nat} (h : 0 < n) :
     nbrCallsClog2Nat n = clog2Nat n + 1 := by
@@ -235,8 +224,6 @@ private theorem nbrCallsFlog2_eq_natExpr_of_pos {z : Int} (hz : 0 < z) :
 private theorem expt_two_flog2_eq_natExpr_of_pos {z : Int} (hz : 0 < z) :
     Logic.expt (intExpr 2) (flog2 (intExpr z)) = natExpr (2 ^ flog2Nat z.toNat) := by
   simp [Logic.expt, flog2, intExpr, natExpr, hz]
-  intro hneg
-  omega
 
 private theorem expt_two_succ_flog2_eq_natExpr_of_pos {z : Int} (hz : 0 < z) :
     Logic.expt (intExpr 2) (Logic.plus (intExpr 1) (flog2 (intExpr z))) =

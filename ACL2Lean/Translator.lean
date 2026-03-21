@@ -77,6 +77,12 @@ partial def translateLiteral : SExpr → String
   | .atom (.keyword k) => s!"(SExpr.atom (.keyword \"{k}\"))"
   | .cons a b => s!"(SExpr.cons {translateLiteral a} {translateLiteral b})"
 
+/-- Extract the last element from a cond clause body (implicit progn). -/
+private def condClauseVal (body : SExpr) : SExpr :=
+  match body.toList? with
+  | some l@(_ :: _) => l.getLast!
+  | _ => body
+
 mutual
 /-- Translate `(case test (sym1 val1) (sym2 val2) ... (otherwise default))` to nested if/equal. -/
 partial def translateCaseClauses (testStr : String) (clauses : SExpr) (nativeIf : Bool) : String :=
@@ -108,10 +114,12 @@ partial def translateCaseClauses (testStr : String) (clauses : SExpr) (nativeIf 
   | .nil => "SExpr.nil"
   | _ => s!"sorry /- malformed case clause: {repr clauses} -/"
 
-/-- Translate `(cond (test1 val1) (test2 val2) ... (t default))` to nested if. -/
+/-- Translate `(cond (test1 val1) (test2 val2) ... (t default))` to nested if.
+    Multi-body clauses `(test body1 body2)` use the last body (implicit progn). -/
 partial def translateCond (clauses : SExpr) (nativeIf : Bool) : String :=
   match clauses with
-  | .cons (.cons test (.cons val .nil)) rest =>
+  | .cons (.cons test body) rest =>
+    let val := condClauseVal body
     match test with
     | .atom (.symbol s) =>
       if s.isNamed "t" then translateExpr val nativeIf

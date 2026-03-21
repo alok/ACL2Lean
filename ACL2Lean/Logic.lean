@@ -144,11 +144,14 @@ open ACL2
 /-- ACL2 `quote`. -/
 @[inline, simp] def quote_ (s : SExpr) : SExpr := s
 
-/-- ACL2 `expt`. -/
+/-- ACL2 `expt`. For negative exponents, returns the rational `1/(x^|y|)`. -/
 @[inline, simp] def expt (a b : SExpr) : SExpr :=
   let x := toInt a
   let y := toInt b
-  if y < 0 then .atom (.number (.int 0)) -- Placeholder
+  if y < 0 then
+    let denom := x ^ (-y).toNat
+    if denom == 0 then .atom (.number (.int 0))
+    else .atom (.number (.rational 1 denom.toNat))
   else .atom (.number (.int (x ^ y.toNat)))
 
 /-- ACL2 `le` (<=). -/
@@ -187,21 +190,21 @@ open ACL2
   | .atom (.string _) => .t
   | _ => .nil
 
-/-- ACL2 `string-append`. -/
+/-- ACL2 `string-append`. Returns empty string on non-string inputs. -/
 @[inline, simp] def string_append (a b : SExpr) : SExpr :=
   match a, b with
   | .atom (.string s1), .atom (.string s2) => .atom (.string (s1 ++ s2))
-  | _, _ => .nil
+  | _, _ => .atom (.string "")
 
-/-- ACL2 `logand`. -/
+/-- ACL2 `logand`. TODO: wrong for negative inputs (needs two's complement). -/
 @[inline, simp] def logand (a b : SExpr) : SExpr :=
   .atom (.number (.int (Nat.land (toInt a).toNat (toInt b).toNat)))
 
-/-- ACL2 `logor`. -/
+/-- ACL2 `logor`. TODO: wrong for negative inputs (needs two's complement). -/
 @[inline, simp] def logor (a b : SExpr) : SExpr :=
   .atom (.number (.int (Nat.lor (toInt a).toNat (toInt b).toNat)))
 
-/-- ACL2 `logxor`. -/
+/-- ACL2 `logxor`. TODO: wrong for negative inputs (needs two's complement). -/
 @[inline, simp] def logxor (a b : SExpr) : SExpr :=
   .atom (.number (.int (Nat.xor (toInt a).toNat (toInt b).toNat)))
 
