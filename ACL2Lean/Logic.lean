@@ -196,17 +196,43 @@ open ACL2
   | .atom (.string s1), .atom (.string s2) => .atom (.string (s1 ++ s2))
   | _, _ => .atom (.string "")
 
-/-- ACL2 `logand`. TODO: wrong for negative inputs (needs two's complement). -/
+/-- Two's complement bitwise AND on integers.
+    Uses De Morgan: `NOT a AND NOT b = NOT (a OR b)`,
+    and `a AND NOT b = a XOR (a AND b)`. -/
+private def intLogand (a b : Int) : Int :=
+  match a, b with
+  | .ofNat m, .ofNat n => Int.ofNat (Nat.land m n)
+  | .negSucc m, .ofNat n => Int.ofNat (Nat.xor n (Nat.land n m))
+  | .ofNat m, .negSucc n => Int.ofNat (Nat.xor m (Nat.land m n))
+  | .negSucc m, .negSucc n => Int.negSucc (Nat.lor m n)
+
+/-- Two's complement bitwise OR on integers. -/
+private def intLogor (a b : Int) : Int :=
+  match a, b with
+  | .ofNat m, .ofNat n => Int.ofNat (Nat.lor m n)
+  | .negSucc m, .ofNat n => Int.negSucc (Nat.xor m (Nat.land m n))
+  | .ofNat m, .negSucc n => Int.negSucc (Nat.xor n (Nat.land n m))
+  | .negSucc m, .negSucc n => Int.negSucc (Nat.land m n)
+
+/-- Two's complement bitwise XOR on integers. -/
+private def intLogxor (a b : Int) : Int :=
+  match a, b with
+  | .ofNat m, .ofNat n => Int.ofNat (Nat.xor m n)
+  | .negSucc m, .ofNat n => Int.negSucc (Nat.xor m n)
+  | .ofNat m, .negSucc n => Int.negSucc (Nat.xor m n)
+  | .negSucc m, .negSucc n => Int.ofNat (Nat.xor m n)
+
+/-- ACL2 `logand`. Two's complement semantics. -/
 @[inline, simp] def logand (a b : SExpr) : SExpr :=
-  .atom (.number (.int (Nat.land (toInt a).toNat (toInt b).toNat)))
+  .atom (.number (.int (intLogand (toInt a) (toInt b))))
 
-/-- ACL2 `logor`. TODO: wrong for negative inputs (needs two's complement). -/
+/-- ACL2 `logor`. Two's complement semantics. -/
 @[inline, simp] def logor (a b : SExpr) : SExpr :=
-  .atom (.number (.int (Nat.lor (toInt a).toNat (toInt b).toNat)))
+  .atom (.number (.int (intLogor (toInt a) (toInt b))))
 
-/-- ACL2 `logxor`. TODO: wrong for negative inputs (needs two's complement). -/
+/-- ACL2 `logxor`. Two's complement semantics. -/
 @[inline, simp] def logxor (a b : SExpr) : SExpr :=
-  .atom (.number (.int (Nat.xor (toInt a).toNat (toInt b).toNat)))
+  .atom (.number (.int (intLogxor (toInt a) (toInt b))))
 
 /-- ACL2 `lognot`. -/
 @[inline, simp] def lognot (a : SExpr) : SExpr :=
