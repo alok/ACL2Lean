@@ -3,6 +3,20 @@ import ACL2Lean
 private def theoremMatches (needle : String) (name : ACL2.Symbol) : Bool :=
   name.normalizedName = needle.map Char.toLower
 
+/-- Flatten events preserving locality: returns (event, isLocal) pairs. -/
+private partial def flattenWithLocality (isLocal : Bool) : ACL2.Event → List (ACL2.Event × Bool)
+  | .local inner => flattenWithLocality true inner
+  | .mutualRecursion events => events.flatMap (flattenWithLocality isLocal)
+  | .encapsulate events => events.flatMap (flattenWithLocality isLocal)
+  | .makeEvent body =>
+      let generated := ACL2.Event.generatedEvents body
+      if generated.isEmpty then [(.makeEvent body, isLocal)]
+      else generated.flatMap (flattenWithLocality isLocal)
+  | event => [(event, isLocal)]
+
+private def flattenListWithLocality (events : List ACL2.Event) : List (ACL2.Event × Bool) :=
+  events.flatMap (flattenWithLocality false)
+
 private def printTheoremMetadata (name : ACL2.Symbol) (info : ACL2.TheoremInfo) : IO Unit := do
   IO.println s!"theorem {repr name}"
   let ruleClasses := info.ruleClasses.map ACL2.RuleClass.summary
@@ -67,16 +81,41 @@ def main (args : List String) : IO Unit := do
       | .error e => IO.eprintln s!"Load error: {e}"
       | .ok evs =>
           IO.println "import ACL2Lean.Logic"
+          IO.println "import ACL2Lean.Lexorder"
+          IO.println "import ACL2Lean.Count"
+          IO.println "import ACL2Lean.TermOrder"
           IO.println "import ACL2Lean.Tactics"
-          IO.println "open ACL2 ACL2.Logic ACL2.Tactics"
-          IO.println ""
+          -- Emit include-book as Lean imports
           for ev in ACL2.Event.flattenList evs do
             match ev with
+            | .includeBook bookPath _ =>
+                -- Extract the base filename (after last /) and PascalCase it
+                -- "perm" -> "Perm", "ordered-perms" -> "OrderedPerms"
+                -- "sorting/perm" -> "Perm", "arithmetic-3/extra/top-ext" -> "TopExt"
+                let baseBook := match bookPath.splitOn "/" with
+                  | [] => bookPath
+                  | parts => parts.getLast!
+                let baseParts := baseBook.splitOn "-"
+                let capitalized := baseParts.map fun p =>
+                  if p.isEmpty then p
+                  else String.ofList (p.toList.head!.toUpper :: p.toList.tail!)
+                let moduleName := String.intercalate "" capitalized
+                IO.println s!"import ACL2Lean.Translated.{moduleName}"
+            | _ => pure ()
+          IO.println "open ACL2 ACL2.Logic ACL2.Tactics"
+          IO.println ""
+          for (ev, isLocal) in flattenListWithLocality evs do
+            let priv := if isLocal then "private " else ""
+            match ev with
             | .defun name formals _ _ body =>
-                IO.println (ACL2.Translator.translateDefun name formals body)
+                let defStr := ACL2.Translator.translateDefun name formals body
+                let defStr := if isLocal then defStr.replace "def " s!"{priv}def " else defStr
+                IO.println defStr
                 IO.println ""
             | .defthm name info =>
-                IO.println (ACL2.Translator.translateDefthm name info)
+                let thmStr := ACL2.Translator.translateDefthm name info
+                let thmStr := if isLocal then thmStr.replace "theorem " s!"{priv}theorem " else thmStr
+                IO.println thmStr
                 IO.println ""
             | .inTheory expr =>
                 IO.println s!"/- ACL2 in-theory: {(ACL2.TheoryExpr.ofSExpr expr).summary} -/"
