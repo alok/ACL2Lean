@@ -2,6 +2,10 @@
 build:
     lake build
 
+# Run tests
+test:
+    lake build Tests
+
 # Run the corpus report
 report:
     lake exe acl2lean report
